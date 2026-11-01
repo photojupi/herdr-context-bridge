@@ -28,7 +28,7 @@ AGY の公式 [`statusLine` の `quota`](https://antigravity.google/docs/cli/sta
 - `app-server`、アカウント使用量 API、full thread history API に対応する Codex。Codex を対象とする新しいタブでは `--no-daemon` を使用します。
 - Windows の CLI はネイティブの `.exe`・`.com` と標準 npm `.cmd` shim に対応し、shim の Node またはネイティブの実行対象を直接起動します。プロンプト引数をシェル展開で変えないため、任意の `.cmd`・`.bat` スクリプトは CLI 起動用として対応しません。
 
-CI は `macos-latest` と `windows-latest` を対象に設定しています。この変更は macOS で開発・検証しており、Windows 実機の Herdr アプリでの動作はまだ検証していません。
+CI は `macos-latest` と `windows-latest` で Node.js 22.5・24 を使い、回帰テスト・構文検査・隔離された引き継ぎ smoke テストを実行します。Windows 実機の Herdr アプリでの動作は、まだ手動検証していません。
 
 リモートの Herdr マシンや、複数の認証プロファイルの同時管理には対応していません。ログインアカウントを変更する前に **毎回承認** に切り替え、使用量とセッションの関連付けを再確認してください。
 

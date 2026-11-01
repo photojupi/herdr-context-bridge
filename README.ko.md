@@ -24,7 +24,7 @@ Node.js 기본 모듈만 사용하며 별도 웹 서버나 패키지 설치는 �
 - Codex의 `app-server`, 계정 사용량 API와 full thread history API를 지원하는 버전. Codex 대상으로 새 탭을 열 때 `--no-daemon`을 사용합니다.
 - Windows CLI는 네이티브 `.exe`·`.com`과 표준 npm `.cmd` shim을 지원하며, shim의 Node 또는 네이티브 대상을 직접 실행합니다. 프롬프트 인자가 셸 확장으로 바뀌지 않도록 임의의 `.cmd`·`.bat` 셸 스크립트는 CLI 실행기로 지원하지 않습니다.
 
-CI는 `macos-latest`와 `windows-latest`를 대상으로 구성되어 있습니다. 이번 변경은 macOS에서 개발·검증했으며 실제 Windows 기기의 Herdr 앱 동작은 아직 검증하지 않았습니다.
+CI는 `macos-latest`와 `windows-latest`에서 Node.js 22.5·24로 회귀 테스트·구문 검사·격리된 인계 smoke 검사를 실행합니다. 실제 Windows 기기의 Herdr 앱 동작은 아직 수동 검증하지 않았습니다.
 
 원격 Herdr 머신과 여러 인증 프로필을 동시에 관리하는 기능은 포함하지 않습니다. 로그인 계정을 바꿀 때는 먼저 **매번 승인**으로 전환하고 사용량과 세션 연결을 다시 확인하세요.
 

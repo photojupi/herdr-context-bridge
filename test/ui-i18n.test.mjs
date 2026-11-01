@@ -46,7 +46,7 @@ const find = (node, id) => node?.attributes?.id?.[0] === id ? node : (node?.cont
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 let instance = 0;
 
-async function loadUi({ properties = {}, exec, sharedValues = new Map() } = {}) {
+async function loadUi({ properties = {}, exec, sharedValues = new Map(), source } = {}) {
   const calls = [], overlays = [], notifications = [], tasks = [], closed = [], timers = [], focus = [];
   const key = `__contextBridgeUi${instance++}`;
   const status = { config: { mode: 'ask', threshold: 10, autoSessions: [] }, bindings: [], quotas: {}, installed: { claude: true, codex: true }, jobs: [] };
@@ -61,8 +61,8 @@ async function loadUi({ properties = {}, exec, sharedValues = new Map() } = {}) 
       return result?.stdout !== undefined ? result : { stdout: JSON.stringify(result), stderr: '', code: 0 };
     },
   };
-  let source = await readFile(new URL('../mods/context-bridge/main.js', import.meta.url), 'utf8');
-  source = source.replace(/^import .* from '(gpui-kit|gpui-base|herdr)';\n/gm, '');
+  source ??= await readFile(new URL('../mods/context-bridge/main.js', import.meta.url), 'utf8');
+  source = source.replace(/^import .* from '(gpui-kit|gpui-base|herdr)';\r?\n/gm, '');
   source = `const { ${Object.keys(globalThis[key]).join(', ')} } = globalThis[${JSON.stringify(key)}];\n${source}`;
   for (const file of ['ui-logic.js', 'i18n.js']) source = source.replace(`'./${file}'`, JSON.stringify(new URL(`../mods/context-bridge/${file}`, import.meta.url).href));
   const { default: ContextBridge } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
@@ -72,6 +72,18 @@ async function loadUi({ properties = {}, exec, sharedValues = new Map() } = {}) 
   view.init(properties, cx);
   return { view, cx, calls, overlays, notifications, tasks, status, closed, timers, focus };
 }
+
+test('UI loader renders the real module with LF and CRLF line endings', async () => {
+  const source = await readFile(new URL('../mods/context-bridge/main.js', import.meta.url), 'utf8');
+  for (const lineEnding of ['\n', '\r\n']) {
+    const ui = await loadUi({ properties: { role: 'details', locale: 'en' }, source: source.replace(/\r?\n/g, lineEnding) });
+    await settle();
+    const root = ui.view.render(ui.cx);
+    assert.match(visible(root), /Handoff settings/);
+    find(root, 'review').attributes.on_click[0]();
+    assert.equal(ui.overlays[0].props.role, 'review');
+  }
+});
 
 test('summary click opens full details with the same helper, locale and source without taking focus', async () => {
   const ui = await loadUi({ properties: { role: 'summary', locale: 'ko', helper: '/custom/cli.mjs', node: '/custom/node', sourceKey: 'claude:chosen' } });

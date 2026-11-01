@@ -28,7 +28,7 @@
 - 支持 `app-server`、账户用量 API 和 full thread history API 的 Codex 版本。为 Codex 新建目标标签页时使用 `--no-daemon`。
 - Windows CLI 支持原生 `.exe`、`.com` 及标准 npm `.cmd` shim，并直接运行 shim 对应的 Node 或原生目标。为避免 shell 展开改变提示词参数，不支持将任意 `.cmd`、`.bat` 脚本用作 CLI 启动器。
 
-CI 已配置 `macos-latest` 和 `windows-latest`。本次变更在 macOS 上开发和验证；尚未在 Windows 实机上验证 Herdr 桌面应用的运行情况。
+CI 在 `macos-latest` 和 `windows-latest` 上使用 Node.js 22.5 和 24 执行回归测试、语法检查及隔离的交接 smoke 测试。尚未手动验证 Windows 实机上的 Herdr 桌面应用运行情况。
 
 本工具不支持远程 Herdr 机器，也不支持同时管理多个认证配置。切换登录账户前，请先选择 **每次批准**，再重新检查用量与会话绑定。
 

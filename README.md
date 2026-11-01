@@ -24,7 +24,7 @@ The summary, details dialog, and helper support English (`en`), Korean (`ko`), J
 - A Codex version supporting `app-server`, the account usage API, and the full thread history API. New tabs targeting Codex use `--no-daemon`.
 - Windows CLI discovery supports native `.exe`/`.com` programs and standard npm `.cmd` shims, whose Node or native targets are launched directly. Arbitrary `.cmd`/`.bat` shell scripts are not supported as CLI launchers, so prompt arguments do not pass through shell expansion.
 
-CI is configured for `macos-latest` and `windows-latest`. This change was developed and checked on macOS; operation in the Windows Herdr desktop app has not yet been verified on a Windows machine.
+CI runs regression tests, syntax checks, and isolated handoff smoke tests on `macos-latest` and `windows-latest` with Node.js 22.5 and 24. Operation in the Windows Herdr desktop app has not yet been manually verified.
 
 Remote Herdr machines and simultaneous management of multiple authentication profiles are outside the scope of this tool. Before switching signed-in accounts, select **Ask every time**, then recheck usage and session bindings.
 

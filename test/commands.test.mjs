@@ -80,7 +80,10 @@ test('spawnCommand preserves prompt and JSON arguments through a real npm-shim t
   child.stderr.on('data', data => { errors += data; });
   const [code] = await once(child, 'close');
   assert.equal(code, 0, errors);
-  assert.deepEqual(JSON.parse(output), { args, cwd: await realpath(dir), value: '값 %PATH% !X! & "' });
+  const result = JSON.parse(output);
+  assert.deepEqual(result.args, args);
+  assert.equal(result.value, '값 %PATH% !X! & "');
+  assert.equal(await realpath(result.cwd), await realpath(dir));
 });
 
 test('POSIX command resolution preserves executable checks and direct Node paths', { skip: process.platform === 'win32' }, async t => {
