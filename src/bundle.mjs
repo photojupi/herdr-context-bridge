@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { spawn } from 'node:child_process';
-import { validatedTranscript } from './sessions.mjs';
+import { validatedTranscript, validatedAgyTranscript } from './sessions.mjs';
 
 const CHUNK_BYTES = 131072;
 const PARSE_BYTES = 1048576;
@@ -94,19 +94,46 @@ async function indexJsonl(directory, raw, indexHandle, manifest, main, source) {
   let lineNumber = 0;
   let valid = 0;
   let latestCwd;
+  const codexMain = source.provider === 'codex' && raw.role === 'main';
+  const agyMain = source.provider === 'agy' && raw.role === 'main';
+  let codexSessionMatches = false;
   const parents = new Map();
   async function record(terminated) {
     lineNumber++;
     const metadata = { source: raw.path, line: lineNumber, startByte: offset, byteLength: length + (terminated ? 1 : 0) };
     if (length > PARSE_BYTES) {
       metadata.metadataUnavailable = t('large record: read all byte chunks');
-      if (main) { manifest.latestLeaf = null; manifest.latestRecord = null; latestCwd = undefined; }
+      if (codexMain) manifest.permissionMode = 'default';
+      if (main || agyMain) { manifest.latestLeaf = null; manifest.latestRecord = null; latestCwd = undefined; }
       manifest.warnings.push(t('{path}:{line} 큰 record의 메타데이터는 분석하지 않았으며 최신 cwd/branch 판정은 확인할 수 없습니다. 원문과 모든 조각은 보존했습니다',{path:raw.path,line:lineNumber}));
       valid++;
     } else if (length) {
       try {
         const event = JSON.parse(Buffer.concat(parts, length).toString('utf8'));
         if (!event || typeof event !== 'object' || Array.isArray(event)) throw new Error('record object required');
+        if (agyMain) {
+          if (event.truncated_fields?.length) throw new Error(t('AGY 전체 기록에 잘린 필드가 있습니다'));
+          if (!Number.isSafeInteger(event.step_index) || event.step_index < 0) throw new Error('AGY step_index required');
+          for (const key of ['step_index', 'source', 'type', 'status', 'created_at']) if (event[key] !== undefined) metadata[key === 'source' ? 'stepSource' : key] = event[key];
+          manifest.latestLeaf = event.step_index;
+          manifest.latestRecord = metadata;
+        }
+        if (codexMain && event.type === 'session_meta') {
+          codexSessionMatches = event.payload?.id === source.id;
+          manifest.permissionMode = 'default';
+        }
+        if (codexMain && event.type === 'turn_context') {
+          const context = event.payload;
+          const observedAt = Date.parse(event.timestamp);
+          // Codex hooks expose approval_policy only; never alone is not yolo.
+          manifest.permissionMode = codexSessionMatches && source.approvalBypass === true
+            && Number.isFinite(source.startedAt) && Number.isFinite(observedAt) && observedAt >= source.startedAt
+            && context?.cwd === source.cwd
+            && context.approval_policy === 'never' && context.sandbox_policy?.type === 'danger-full-access'
+            && (context.permission_profile === undefined || context.permission_profile?.type === 'disabled')
+            && (context.file_system_sandbox_policy === undefined || context.file_system_sandbox_policy?.kind === 'unrestricted')
+            ? 'bypass' : 'default';
+        }
         if (main && event.sessionId && event.sessionId !== source.id) throw new Error(t('선택한 session id/cwd와 원문 metadata가 일치하지 않습니다'));
         valid++;
         if (main && event.cwd && !event.isSidechain) latestCwd = event.cwd;
@@ -118,8 +145,9 @@ async function indexJsonl(directory, raw, indexHandle, manifest, main, source) {
         }
         if (main && (event.subtype === 'compact_boundary' || event.type === 'summary')) manifest.compactions.push({ ...metadata, compactMetadata: event.compactMetadata });
       } catch (error) {
-        if (error.message===t('선택한 session id/cwd와 원문 metadata가 일치하지 않습니다')) throw error;
+        if (error.message===t('선택한 session id/cwd와 원문 metadata가 일치하지 않습니다') || error.message===t('AGY 전체 기록에 잘린 필드가 있습니다')) throw error;
         if (terminated) throw new Error(t('{path}:{line} JSON 기록이 손상되었습니다',{path:raw.path,line:lineNumber}));
+        if (codexMain) manifest.permissionMode = 'default';
         metadata.incomplete = true;
         manifest.warnings.push(t('{path}:{line} 불완전한 마지막 JSONL 줄(incomplete)을 raw에 보존했으며 메시지로 해석하지 않았습니다',{path:raw.path,line:lineNumber}));
       }
@@ -168,9 +196,10 @@ async function gitCommand(cwd, args, destination) {
   catch { output.destroy(); return false; }
 }
 
-export async function createBundle(source, { stateDir, codexClient, codexOptions = {}, now = Date.now, claudeHome = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), codexHome = process.env.CODEX_HOME || join(homedir(), '.codex') } = {}) {
-  if (!source || !['claude', 'codex'].includes(source.provider) || !/^[A-Za-z0-9_-]+$/.test(source.id)) throw new Error(t('provider 또는 session id 식별자가 올바르지 않습니다'));
+export async function createBundle(source, { stateDir, codexClient, codexOptions = {}, now = Date.now, claudeHome = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), codexHome = process.env.CODEX_HOME || join(homedir(), '.codex'), agyHome } = {}) {
+  if (!source || !['claude', 'codex', 'agy'].includes(source.provider) || !/^[A-Za-z0-9_-]+$/.test(source.id)) throw new Error(t('provider 또는 session id 식별자가 올바르지 않습니다'));
   if (typeof source.cwd !== 'string' || !isAbsolute(source.cwd)) throw new Error(t('절대 작업 경로가 필요합니다'));
+  if (source.provider === 'agy' && (source.observationSource !== 'statusline' || source.trustedBinding !== true)) throw new Error(t('AGY 공식 statusLine 세션 관측이 필요합니다'));
   if (!stateDir) { const { stateDirectory } = await import('./storage.mjs'); stateDir = stateDirectory(); }
   if (source.provider === 'codex' && !codexClient) {
     const { withCodex } = await import('./codex.mjs');
@@ -184,11 +213,13 @@ export async function createBundle(source, { stateDir, codexClient, codexOptions
   await mkdir(join(directory, 'raw'), { mode: 0o700 });
   await mkdir(join(directory, 'chunks'), { mode: 0o700 });
   const manifest = { version: 1, createdAt: typeof now === 'function' ? now() : now, source: { provider: source.provider, id: source.id, cwd: source.cwd }, complete: false, raw: [], chunks: [], apiPages: [], activeBranch: [], latestLeaf: null, compactions: [], warnings: [], limits: [t('실행 중 도구/프로세스, 모델 내부 상태, 원래 시스템 프롬프트는 복제하지 않습니다'), t('외부 첨부는 접근 가능성을 확인하지 않았으며 원문 내부 데이터와 참조만 보존합니다')] };
+  if (source.provider === 'codex') manifest.permissionMode = 'default';
+  if (source.provider === 'agy') manifest.limits.push(t('AGY 원문에는 session id/cwd가 없어 공식 statusLine 관측과 검증된 경로로 식별합니다. step_index의 파일 순서로 읽고 요약/압축 관련 SYSTEM_MESSAGE도 원문과 함께 확인하십시오'));
   const index = await open(join(directory, 'records.jsonl'), 'wx', 0o600);
   try {
     async function addRaw(path, role) {
       const roots = source.provider === 'claude' ? [join(claudeHome, 'projects')] : [join(codexHome, 'sessions'), join(codexHome, 'archived_sessions')];
-      path = await validatedTranscript(path, roots);
+      path = source.provider === 'agy' ? await validatedAgyTranscript(path, source.id, agyHome) : await validatedTranscript(path, roots);
       if (role === 'main' && source.provider === 'claude' && basename(path) !== `${source.id}.jsonl`) throw new Error(t('선택한 session id와 transcript 경로가 일치하지 않습니다'));
       const destination = `raw/${role === 'main' ? 'main' : `subagent-${manifest.raw.length}`}.jsonl`;
       const raw = { path: destination, originalPath: path, role, ...await snapshot(path, join(directory, destination)) };
@@ -203,6 +234,11 @@ export async function createBundle(source, { stateDir, codexClient, codexOptions
       let subagents;
       try { subagents = await readdir(subdirectory, { withFileTypes: true }); } catch (error) { if (error.code !== 'ENOENT') throw error; subagents = []; }
       for (const entry of subagents.sort((a, b) => a.name.localeCompare(b.name))) if (entry.isFile() && /^[A-Za-z0-9_-]+\.jsonl$/.test(entry.name)) await addRaw(join(subdirectory, entry.name), 'subagent');
+    } else if (source.provider === 'agy') {
+      const observedPath = await validatedAgyTranscript(source.transcriptPath, source.id, agyHome);
+      const fullPath = join(dirname(observedPath), 'transcript_full.jsonl');
+      try { await addRaw(fullPath, 'main'); }
+      catch (error) { if (error.code === 'ENOENT') throw new Error(t('AGY 전체 transcript_full.jsonl 기록이 필요합니다')); throw error; }
     } else {
       const response = await codexClient.request('thread/read', { threadId: source.id });
       if (response?.thread?.id !== source.id || response.thread.cwd !== source.cwd) throw new Error(t('선택한 Codex 세션 id/cwd가 현재 metadata와 일치하지 않습니다'));

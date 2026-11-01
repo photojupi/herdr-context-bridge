@@ -1,7 +1,7 @@
 import {t as message} from '../src/i18n.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, realpath, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { listSessions, validatedTranscript } from '../src/sessions.mjs';
@@ -105,4 +105,56 @@ test('큰 과거 record 뒤 newline 없는 완전한 최신 metadata도 cwd 증�
   await writeFile(join(project, 'moved.jsonl'), JSON.stringify({ type: 'user', sessionId: 'moved', cwd: '/old', message: { content: 'x'.repeat(150000) } }) + '\n' + JSON.stringify({ type: 'assistant', sessionId: 'moved', cwd: '/new' }));
   const result = await listSessions('claude', '/new', { claudeHome: home, stateDir: join(home, 'state') });
   assert.equal(result[0].id, 'moved');
+});
+test('AGY는 동일 cwd의 공식 관측 registry와 존재하는 transcript가 있는 세션만 발견한다', async t => {
+  const home = await fixture(t);
+  const stateDir = join(home, 'state');
+  const agyHome = join(home, 'agy');
+  await mkdir(join(stateDir, 'sessions'), { recursive: true });
+  for (const [id, extra] of [['observed', {}], ['other', { cwd: '/other' }], ['unobserved', { observationSource: undefined }], ['missing', {}]]) {
+    const transcriptPath = join(agyHome, 'brain', id, '.system_generated', 'logs', 'transcript.jsonl');
+    if (id !== 'missing') {
+      await mkdir(join(agyHome, 'brain', id, '.system_generated', 'logs'), { recursive: true });
+      await writeFile(transcriptPath, '{"step_index":0,"content":"private conversation"}\n');
+    }
+    await writeFile(join(stateDir, 'sessions', `agy-${id}.json`), JSON.stringify({ provider: 'agy', id, cwd: home, updatedAt: 1234, observationSource: 'statusline', trustedBinding: true, transcriptPath, ...extra }));
+  }
+  const sessions = await listSessions('agy', home, { stateDir, agyHome });
+  assert.deepEqual(sessions.map(s => ({ id: s.id, cwd: s.cwd, trustedBinding: s.trustedBinding })), [{ id: 'observed', cwd: home, trustedBinding: true }]);
+  assert.equal(sessions[0].updatedAt, 1234);
+  assert.equal(sessions[0].observationSource, 'statusline');
+  assert.equal(JSON.stringify(sessions).includes('private conversation'), false);
+  assert.deepEqual(await listSessions('agy', home, { stateDir: join(home, 'missing'), agyHome }), []);
+});
+test('AGY 재사용 터미널의 새 공식 관측 세션도 수동 연결 후보로 반환한다', async t => {
+  const home = await fixture(t);
+  const stateDir = join(home, 'state');
+  const agyHome = join(home, 'agy');
+  const logs = join(agyHome, 'brain', 'new-session', '.system_generated', 'logs');
+  await mkdir(logs, { recursive: true });
+  await mkdir(join(stateDir, 'sessions'), { recursive: true });
+  const transcriptPath = join(logs, 'transcript.jsonl');
+  await writeFile(transcriptPath, '{"step_index":0}\n');
+  await writeFile(join(stateDir, 'sessions', 'agy-new-session.json'), JSON.stringify({ provider: 'agy', id: 'new-session', cwd: home, observationSource: 'statusline', trustedBinding: false, transcriptPath }));
+  const sessions = await listSessions('agy', home, { stateDir, agyHome });
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].id, 'new-session');
+  assert.equal(sessions[0].observationSource, 'statusline');
+  assert.equal(sessions[0].trustedBinding, false);
+});
+test('AGY는 다른 session id의 transcript와 brain 내부 symlink로 바뀐 id를 거부한다', async t => {
+  const home = await fixture(t);
+  const stateDir = join(home, 'state');
+  const agyHome = join(home, 'agy');
+  const logs = join(agyHome, 'brain', 'other', '.system_generated', 'logs');
+  await mkdir(logs, { recursive: true });
+  await mkdir(join(stateDir, 'sessions'), { recursive: true });
+  await writeFile(join(logs, 'transcript.jsonl'), '{}\n');
+  const registryPath = join(stateDir, 'sessions', 'agy-selected.json');
+  const binding = { provider: 'agy', id: 'selected', cwd: home, observationSource: 'statusline', trustedBinding: true, transcriptPath: join(logs, 'transcript.jsonl') };
+  await writeFile(registryPath, JSON.stringify(binding));
+  await assert.rejects(listSessions('agy', home, { stateDir, agyHome }), { message: message('AGY session id와 transcript 경로가 일치하지 않습니다') });
+  await symlink(join(agyHome, 'brain', 'other'), join(agyHome, 'brain', 'selected'), process.platform === 'win32' ? 'junction' : 'dir');
+  await writeFile(registryPath, JSON.stringify({ ...binding, transcriptPath: join(agyHome, 'brain', 'selected', '.system_generated', 'logs', 'transcript.jsonl') }));
+  await assert.rejects(listSessions('agy', home, { stateDir, agyHome }), { message: message('AGY session id와 transcript 경로가 일치하지 않습니다') });
 });

@@ -6,9 +6,28 @@ import { basename, isAbsolute, join, relative, sep } from 'node:path';
 const DISCOVERY_LIMIT = 5000;
 const METADATA_BYTES = 131072;
 
-export async function listSessions(provider, cwd, { stateDir, claudeHome = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), codexClient } = {}) {
-  if (!['claude', 'codex'].includes(provider)) throw new Error(t('지원하지 않는 provider'));
+export async function listSessions(provider, cwd, { stateDir, claudeHome = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), agyHome, codexClient } = {}) {
+  if (!['claude', 'codex', 'agy'].includes(provider)) throw new Error(t('지원하지 않는 provider'));
   if (typeof cwd !== 'string' || !isAbsolute(cwd)) throw new Error(t('절대 cwd 경로가 필요합니다'));
+  if (provider === 'agy') {
+    const { readJson, stateDirectory } = await import('./storage.mjs');
+    const directory = join(stateDir || stateDirectory(), 'sessions');
+    let entries;
+    try { entries = await readdir(directory, { withFileTypes: true }); }
+    catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+    if (entries.length > DISCOVERY_LIMIT) throw new Error(t('세션 발견 한도에 도달했습니다. 후보가 누락될 수 있어 선택을 중단합니다'));
+    const sessions = [];
+    for (const entry of entries) {
+      if (!entry.isFile() || !/^agy-[A-Za-z0-9_-]+\.json$/.test(entry.name)) continue;
+      const binding = await readJson(join(directory, entry.name));
+      if (binding?.provider !== provider || entry.name !== `agy-${binding.id}.json` || binding.cwd !== cwd || binding.observationSource !== 'statusline') continue;
+      let transcriptPath;
+      try { transcriptPath = await validatedAgyTranscript(binding.transcriptPath, binding.id, agyHome); }
+      catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+      sessions.push({ provider, id: binding.id, cwd, transcriptPath, observationSource: 'statusline', trustedBinding: binding.trustedBinding === true, updatedAt: binding.updatedAt, ...(typeof binding.title === 'string' ? { title: binding.title } : {}) });
+    }
+    return sessions;
+  }
   if (provider === 'codex') {
     if (!codexClient) {
       const { withCodex } = await import('./codex.mjs');
@@ -106,4 +125,18 @@ export async function validatedTranscript(path, roots) {
     if (child && child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child)) return canonical;
   }
   throw new Error(t('transcript 경로가 provider data root 밖에 있습니다'));
+}
+
+export async function validatedAgyTranscript(path, id, agyHome) {
+  if (typeof id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(id) || typeof path !== 'string' || !isAbsolute(path)
+    || !['transcript.jsonl', 'transcript_full.jsonl'].includes(basename(path))) throw new Error(t('AGY session id와 transcript 경로가 일치하지 않습니다'));
+  const homes = agyHome ? [agyHome] : [join(homedir(), '.gemini', 'antigravity-cli'), join(homedir(), '.gemini', 'antigravity')];
+  const canonical = await realpath(path);
+  for (const home of homes) {
+    let root;
+    try { root = await realpath(join(home, 'brain')); }
+    catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+    if (relative(root, canonical) === join(id, '.system_generated', 'logs', basename(path)) && (await stat(canonical)).isFile()) return canonical;
+  }
+  throw new Error(t('AGY session id와 transcript 경로가 일치하지 않습니다'));
 }

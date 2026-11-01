@@ -6,8 +6,11 @@
 
 ### Added
 
+- Claude·Codex·AGY 사이의 여섯 방향 인계와 나머지 두 제공자 중 대상 선택을 지원합니다. 자동 등록 세션별 대상을 `autoTargets`에 저장하며, 기존 Claude↔Codex 자동 등록은 호환하고 AGY 원본은 명시적 대상을 요구합니다.
+- 공식 statusLine에서 관측한 AGY 세션의 ID·작업 폴더·transcript 경로를 연결하고, 현재 및 이전 `brain` 경로의 실제 경로와 ID를 검증합니다. 전체 `transcript_full.jsonl`의 raw·SHA-256·읽기 조각·인덱스를 보존하며, 압축본만 있으면 인계하지 않습니다. 미관측 과거 세션 전체 검색, 외부 첨부와 독립 subagent 원문의 별도 수집은 하지 않습니다.
+- 확인된 Claude `bypassPermissions`와 Codex의 승인 `never`·샌드박스 `danger-full-access`를 대상 Codex의 `--yolo` 또는 Claude·AGY의 `--dangerously-skip-permissions`로 전달합니다. AGY 원본은 공식 권한 정보가 없어 세션별 **인계 대상 권한**을 `default`·`bypass` 중 직접 선택하며, 기본값은 `default`입니다. AGY 대상에는 `--prompt-interactive`로 초기 프롬프트를 전달합니다.
 - macOS와 함께 네이티브 Windows 설치·실행을 지원합니다. Windows의 Node.js 22.5 이상·Git for Windows·CLI 준비, PowerShell 설치·제거 명령과 사용자 프로필 기반 저장 경로를 네 언어 README에 추가했습니다. CI는 `macos-latest`와 `windows-latest`로 구성했으며, 이번 변경은 macOS에서 검증했고 Windows 실기 Herdr 앱은 아직 검증하지 않았습니다.
-- 추가한 AGY(Antigravity CLI) 공식 statusLine 연동으로 이름별 잔여 한도·리셋·비활성 상태를 상세창에 표시합니다. 기존 AGY 상태줄 명령·옵션을 설치·재설치·제거 시 보존합니다. AGY는 사용량 표시와 알림을 지원하며 대화 인계는 Claude/Codex 범위를 유지합니다.
+- 추가한 AGY(Antigravity CLI) 공식 statusLine 연동으로 이름별 잔여 한도·리셋·비활성 상태를 상세창에 표시합니다. 기존 AGY 상태줄 명령·옵션을 설치·재설치·제거 시 보존합니다. AGY의 잔여량 알림도 인계 확인으로 연결합니다.
 - MIT 라이선스와 공개용 설치 복제 명령, 예시 데이터로 만든 UI 미리보기를 추가했습니다. 개발 작업 보고서·로컬 설정·실제 인계 기록은 공개 커밋에서 제외합니다.
 - 패널, 알림, helper 오류·상태와 생성되는 인계 안내에 영어·한국어·일본어·간체 중국어를 지원하고 macOS의 첫 번째 선호 언어를 자동으로 감지합니다. 지원하지 않는 언어와 번체 중국어는 영어로 표시하며, 시스템 설정을 읽을 수 없을 때만 셸 로케일과 `Intl`을 사용합니다.
 - 읽기 전용 `locale` 명령과 영어 기본 README 및 한국어·일본어·간체 중국어 전체 번역 문서를 추가했습니다.
@@ -24,6 +27,8 @@
 
 ### Changed
 
+- Claude·Codex 원본의 대상 실행 옵션은 최신 hook 또는 인계 bundle의 최신으로 확인된 `turn_context`를 기준으로 결정합니다. Codex는 업데이트된 helper가 관측한 현재 `SessionStart` 이후의 기록만 사용하며, 과거 실행 기록이나 내보내기 중 hook 상태가 바뀐 권한 판정은 무효화합니다. 일반 모드이거나 최신 권한 정보를 확인할 수 없으면 대상 CLI 기본값을 유지합니다. AGY 원본은 별도의 명시적 대상 권한 선택을 사용하며, 모든 권한 규칙은 매번 승인과 등록된 자동 인계에 동일하게 적용합니다. 기존 설치는 저장소 업데이트 후 `npm run install:mod`(Windows: `npm.cmd run install:mod`)를 다시 실행해 복사된 helper를 갱신해야 합니다.
+- AGY 수동·자동 인계는 10분 이내 공식 statusLine에서 `idle`이고 대기 입력·도구 승인·백그라운드 작업·실행 중 subagent가 없을 때만 허용합니다. 자동 인계는 기존처럼 원본·대상의 모든 사용량 창에 유효한 비율과 리셋 시각을 요구하며, 불확실한 AGY bucket을 임의로 제외하거나 기간을 추정하지 않습니다.
 - Herdr 설정 폴더를 공식 앱과 같은 `HERDR_APP_HOME` → `XDG_CONFIG_HOME/herdr-app` → 사용자 홈의 `.config/herdr-app` 순서로 선택합니다. Windows 홈은 `USERPROFILE`을 사용하며, bridge 상태는 그 아래 `.local/state/herdr-context-bridge`에 저장합니다. Windows 언어는 `LC_ALL`·`LC_MESSAGES`·`LANG`·`Intl` 순서로 감지합니다.
 - 인계는 `/usr/bin/env` 대신 Node 실행기로 인자·환경 변수를 전달합니다. Windows CLI는 `.exe`·`.com`과 표준 npm `.cmd` shim의 실제 대상을 직접 실행하며, 임의의 `.cmd`·`.bat` 실행기는 지원하지 않습니다. 기존 Claude 상태줄은 Windows에서 Git Bash가 있으면 사용하고 없으면 PowerShell로 실행하며, AGY는 기본 Windows 명령 셸을 유지합니다.
 - 하단 AGY 요약은 사용자가 대표로 정한 Gemini4 Argon의 `gemini-argon-wtu-weekly`만 **AGY 주간 XX%**로 표시하고, 툴팁에 모델명·원래 bucket ID·리셋 시간을 표시합니다. 대상이 없으면 다른 주간 bucket으로 대체하지 않고 **AGY 주간 —**로 표시합니다. 가격 자동 판별 기능이 아니며 상세와 알림의 전체 bucket은 유지합니다.
@@ -50,5 +55,5 @@
 ### Security
 
 - 기본 승인 모드와 명시적 자동 등록, 실행 직전 원본 상태 확인, 대상 잔여량 검사 및 자동 왕복 방지를 적용했습니다.
-- 인증 토큰을 직접 읽지 않고 공식 CLI에 인증을 맡기며 대상 CLI의 기본 승인·샌드박스를 유지합니다.
+- 인증 토큰을 직접 읽지 않고 공식 CLI에 인증을 맡깁니다. Claude·Codex 원본의 최신 권한 우회 모드가 확인되거나 AGY 원본에서 대상 권한 우회를 명시적으로 선택한 경우에만 대응하는 옵션을 전달합니다. Codex hook의 승인 정보만으로 샌드박스 우회를 추정하지 않으며, AGY 대상 권한 선택을 현재 CLI 권한 감지로 취급하지 않습니다. 그 밖에는 대상 CLI 기본 승인·샌드박스를 유지하고, 원본 세션에 입력을 보내거나 종료하지 않습니다.
 - 세션 식별자·원문 경로를 검증하고 로컬 인계 데이터의 파일·디렉터리 권한을 제한합니다. 0700·0600 mode는 POSIX에 적용하며 Windows에서는 사용자 프로필 폴더의 ACL 권한을 사용합니다.

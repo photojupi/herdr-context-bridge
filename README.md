@@ -2,11 +2,11 @@
 
 [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
 
-A local macOS and native Windows tool for checking Claude Code, Codex, and AGY (Antigravity CLI) account quotas in Herdr. Claude/Codex work history can be handed off to a new terminal in the same working directory when a limit runs low. The default is **Ask every time**. Automatic handoff must be enabled explicitly for a source session you select.
+A local macOS and native Windows tool for checking Claude Code, Codex, and AGY (Antigravity CLI) account quotas in Herdr. Work history can be handed off in all six directions between Claude, Codex, and AGY to a new terminal in the same working directory when a limit runs low. The default is **Ask every time**. Automatic handoff must be enabled explicitly for a source session you select.
 
 It uses only Node.js built-in modules, with no separate web server or package installation required.
 
-Providers appear after this helper observes account usage through an official interface: a successful Codex quota query, or valid Claude/AGY statusline quota data. Installation, settings files, and an AGY `authenticating` event alone do not count. Previously observed providers remain visible with unavailable or stale information when collection fails; this is an observation history, not a live login-status check. Existing valid usage caches are recognized. AGY currently supports usage display and alerts; conversation handoff remains available between Claude and Codex.
+Providers appear after this helper observes account usage through an official interface: a successful Codex quota query, or valid Claude/AGY statusline quota data. Installation, settings files, and an AGY `authenticating` event alone do not count. Previously observed providers remain visible with unavailable or stale information when collection fails; this is an observation history, not a live login-status check. Existing valid usage caches are recognized. All three providers support usage display, alerts, and conversation handoff.
 
 ![Illustration with example data showing the quota summary and handoff details](docs/images/context-bridge-preview.svg)
 
@@ -19,9 +19,10 @@ The summary, details dialog, and helper support English (`en`), Korean (`ko`), J
 ## Requirements
 
 - macOS or native Windows, the Herdr app, and the `herdr-app` and `hc` commands. Written for Herdr 0.1.10.
-- Node.js 22.5 or newer, `git` (Git for Windows on Windows), and the `claude` or `codex` CLI for each handoff provider. Windows requires `node` on the app's `PATH`.
+- Node.js 22.5 or newer, `git` (Git for Windows on Windows), and the `claude`, `codex`, or `agy` CLI for each handoff provider. Windows requires `node` on the app's `PATH`.
 - A currently signed-in local profile in each CLI. The helper launched by the app must also be able to find the CLIs through its `PATH`.
 - A Codex version supporting `app-server`, the account usage API, and the full thread history API. New tabs targeting Codex use `--no-daemon`.
+- AGY must support official `statusLine` session data and `--prompt-interactive`. Source handoff requires its complete `transcript_full.jsonl`.
 - Windows CLI discovery supports native `.exe`/`.com` programs and standard npm `.cmd` shims, whose Node or native targets are launched directly. Arbitrary `.cmd`/`.bat` shell scripts are not supported as CLI launchers, so prompt arguments do not pass through shell expansion.
 
 CI runs regression tests, syntax checks, and isolated handoff smoke tests on `macos-latest` and `windows-latest` with Node.js 22.5 and 24. Operation in the Windows Herdr desktop app has not yet been manually verified.
@@ -56,6 +57,8 @@ The paths above assume the default Herdr configuration directory. Following [Her
 
 By default, the installer copies the personal mod and helper to `~/.config/herdr-app/mods/context-bridge/` and places the quota summary alongside the existing bottom status bar in `layouts/context-bridge.json`, a copy of the default `main` layout. The row keeps the existing status bar height; a layout without a status bar gets one bottom row. Reinstalling replaces the former right panel with this layout without duplicating the summary. Built-in mods and the original `main.json` remain unchanged. The installation command itself does not switch the visible layout.
 
+After updating this repository, rerun `npm run install:mod` (`npm.cmd run install:mod` on Windows) to update the copied helper and enable AGY handoff and permission-mode handling.
+
 It adds a statusline wrapper and hooks to Claude's `~/.claude/settings.json`, and hooks to Codex's `~/.codex/hooks.json`. Existing hooks are preserved. The original Claude statusline command receives the original stdin, and its output and exit code are preserved. Initial configuration backups and a list of changed files are saved in `~/.local/state/herdr-context-bridge/install.json`. If you change the statusline command before reinstalling, the wrapper uses that new command as its original while preserving the initial file backup.
 
 On Windows, the original Claude statusline runs through Git Bash when available, otherwise PowerShell; AGY retains the default Windows command shell. Handoff uses a Node launcher to preserve arguments and environment variables without requiring `/usr/bin/env`.
@@ -84,28 +87,29 @@ The uninstaller removes the added hooks and statusline wrapper and restores the 
 
 ## Usage
 
-1. Check Claude and Codex's **5-hour and weekly remaining quota** in the bottom status row. Each provider and period stays distinct: values are never averaged or added together. Unknown values show `—`, stale values are marked, and valid values at or below the threshold show a warning. Codex periods use actual window metadata; unclear periods are not guessed. Click the summary to open full details with usage cards, reset/update times, **Refresh**, handoff settings, source selection, recent jobs, and the existing manual handoff review. Close the details dialog or press Escape to return to coding without resizing the terminal. The summary refreshes every 60 seconds; **Refresh** requests an update immediately.
-2. In **Select source session**, choose a local terminal and inspect candidate sessions in the same working directory. You can also manually bind existing sessions that hooks did not connect. The most recent file is never automatically selected as the source.
-3. In **Confirm manual handoff**, review the source, target, directory, and preservation scope, then select **Hand off**. Handoff is deferred while the source is working or waiting for ordinary approval.
+1. Check Claude and Codex's **5-hour and weekly remaining quota** and AGY’s representative weekly bucket in the bottom status row. Each provider and period stays distinct: values are never averaged or added together. Unknown values show `—`, stale values are marked, and valid values at or below the threshold show a warning. Codex periods use actual window metadata; unclear periods are not guessed. Click the summary to open full details with usage cards, reset/update times, **Refresh**, handoff settings, source selection, recent jobs, and the existing manual handoff review. Close the details dialog or press Escape to return to coding without resizing the terminal. The summary refreshes every 60 seconds; **Refresh** requests an update immediately.
+2. In **Select source session**, choose a local terminal and inspect candidate sessions in the same working directory. You can also manually bind Claude/Codex sessions that hooks did not connect. AGY candidates are limited to sessions whose ID, working directory, and `transcript_path` were observed through official statusline data; unobserved past sessions are not searched. The most recent file is never automatically selected as the source.
+3. In **Select target provider**, choose either of the other two providers. For an AGY source, **Handoff target permissions** lets you choose **Default permissions** or **Skip permission checks** for that source session; this is your explicit choice for the target, not detection of AGY’s current permission mode. In **Confirm manual handoff**, review the source, target, directory, and preservation scope, then select **Hand off**. Handoff is deferred while the source is working or waiting for ordinary approval.
 4. In the target's new tab, verify delivery of the initial prompt, reading of the records, and resumption of work. **Target terminal opened** in the details dialog means a tab-creation response was received; it does not confirm that the model read every record.
 
-The bottom summary shows the user-selected Gemini4 Argon bucket (`gemini-argon-wtu-weekly`) as **AGY Week XX%**. Its tooltip includes the model name, original bucket ID, and reset time. If this bucket is absent, the summary shows **AGY Week —** without falling back to another weekly bucket. This is the user's chosen representative item, not an automatic price comparison. Details and alerts retain all returned buckets under their original names. Periods are not guessed from names, buckets are not combined, and `remaining_amount` without a total is not converted into a percentage. Disabled buckets show unavailable usage. AGY alerts do not open a handoff confirmation.
+The bottom summary shows the user-selected Gemini4 Argon bucket (`gemini-argon-wtu-weekly`) as **AGY Week XX%**. Its tooltip includes the model name, original bucket ID, and reset time. If this bucket is absent, the summary shows **AGY Week —** without falling back to another weekly bucket. This is the user's chosen representative item, not an automatic price comparison. Details and alerts retain all returned buckets under their original names. Periods are not guessed from names, buckets are not combined, and `remaining_amount` without a total is not converted into a percentage. Disabled buckets show unavailable usage. AGY low-quota alerts can open the same handoff review as the other providers.
 
 The default remaining-quota threshold is 10%, adjustable from 1% to 50% in settings. An alert appears even if the first observed value is already at or below the threshold. Shared app state suppresses duplicate alerts for the same provider, usage window, and reset cycle. **Later** closes the confirmation dialog.
 
 ### Automatic handoff
 
-Select a bound source and use **Auto handoff for selected session** to register it. All of the following are required:
+Select a bound source and a target provider, then use **Auto handoff for selected session** to register both. Configuration stores registered sources in `autoSessions` and their targets in `autoTargets` as `{ "sourceKey": "provider" }`. Older Claude/Codex registrations without a target retain their reciprocal fallback; AGY sources require an explicit target. All of the following are required:
 
 - Automatic mode is enabled and that source session is registered.
 - The source session, terminal, and working directory are bound, and the session is `idle` or `done`. A `blocked` state caused by a confirmed `rate_limit` error is also allowed.
 - The source's latest valid remaining quota is at or below the threshold.
-- The other provider's CLI is available and the target's latest valid remaining quota is above the threshold.
+- The selected target provider's CLI is available and the target's latest valid remaining quota is above the threshold.
+- For AGY sources, official statusline data no older than 10 minutes confirms `idle`, with no pending input, tool approval, background tasks, or running subagents. This source-state check also applies to manual handoff.
 - No automatic attempt has been made for this source, and it was not created by an automatic handoff.
 
-After preparation, the source state and automatic conditions are checked again. Automatic execution is disabled for unavailable collection, stale values, expired windows, unclear bindings, or active work. If target usage cannot be checked, manual confirmation is required. A lock prevents duplicate handoffs for the same source, and automatically created sessions are not automatically switched again. The new tab is created in the source terminal's local space; a space change during preparation aborts the handoff. A confirmed account identifier change across successive Codex queries clears automatic registration.
+After preparation, the source state and automatic conditions are checked again. Automatic execution is disabled for unavailable collection, stale values, expired windows, unclear bindings, or active work. Every source and target quota window must have a valid remaining percentage and an unexpired reset time. AGY model buckets are not guessed or selectively substituted; an uncertain bucket holds automatic handoff, while manual handoff remains available if the source-state and archive requirements are met. A lock prevents duplicate handoffs for the same source, and automatically created sessions are not automatically switched again. The new tab is created in the source terminal's local space; a space change during preparation aborts the handoff. A confirmed account identifier change across successive Codex queries clears automatic registration.
 
-**Failed automatic handoffs are not retried automatically.** Inspect the error and retry manually. If the preparation process stops, a subsequent status query marks it as failed. If an interruption occurs after target creation has begun and the result is uncertain, the lock remains to prevent duplicates; check for a new handoff tab first. **Ask every time** clears automatic registration.
+**Failed automatic handoffs are not retried automatically.** Inspect the error and retry manually. If the preparation process stops, a subsequent status query marks it as failed. If an interruption occurs after target creation has begun and the result is uncertain, the lock remains to prevent duplicates; check for a new handoff tab first. **Ask every time** clears registered sources and targets.
 
 The bottom summary remains mounted while details are closed, so usage refresh, job polling, alerts, and automatic handoff monitoring continue. Its status queries in the app run the automatic policy. There is no separate service monitoring while the app is closed. An already-started handoff preparation worker is a separate process.
 
@@ -125,13 +129,18 @@ Usage collection is a read request that neither runs a conversation nor resumes 
 
 - Claude's main conversation and discovered subagent JSONL files are copied at fixed byte boundaries with sizes and SHA-256 hashes. Original messages, tool calls/results, compaction summaries, and previous branches are retained.
 - Codex raw rollouts are preserved when available, and every cursor page of the official `thread/turns/list` with `itemsView: full` is saved in ascending order. Storage formats without a raw path retain the official full history and explicitly note the absence of raw data.
+- AGY preserves the complete `transcript_full.jsonl` as raw bytes with SHA-256, reading chunks, and an index. Session IDs and canonical paths are checked under `~/.gemini/antigravity-cli/brain` or the documented legacy `~/.gemini/antigravity/brain`. A compact transcript alone or a missing full transcript stops handoff. External attachments and independent subagent transcripts are not collected; references already in the source record are preserved.
 - Large histories are never replaced with summaries or silently truncated at the end. Reading chunks and byte indexes are generated; a truncated final JSONL entry or a large unparseable record produces a warning.
 - The working directory, Git HEAD, status, uncommitted diff, and staged diff are recorded. Source files and Git state are not changed, and diffs are not applied. This is not a separate project backup of untracked file contents.
 - Image data and attachment references in the original records are retained, but copying or accessibility of external attachments is not guaranteed.
 
 `START_HERE.md` in the handoff directory describes the reading order, latest branch, and compaction segments. It is stored with `manifest.json`, `records.jsonl`, `raw/`, `chunks/`, Codex `turns-*.json`, and `git-*.txt`. Failed exports are identified by `FAILED.json`. The target receives the path to this local index in its initial prompt instead of the full lengthy records.
 
-The source session is neither terminated nor sent input. The target CLI retains its default approval and sandbox behavior; no permission-bypass options are added. **Preserving original records is different from cloning a model's entire context.** Running tools/processes, the model's internal neural state, and the original product's system prompt cannot be transferred. The target's context length and actual file reading also matter, so a perfect copy is not claimed before all records have been confirmed as read.
+The source session is neither terminated nor sent input. When the latest confirmed permission mode from a Claude hook is `bypassPermissions`, handoff starts Codex with `--yolo` or AGY with `--dangerously-skip-permissions`. Conversely, when the latest confirmed Codex `turn_context` in the handoff bundle has approval `never` and sandbox `danger-full-access`, without additional restrictions, handoff starts Claude or AGY with `--dangerously-skip-permissions`. A Codex hook value alone does not establish its sandbox permissions. Codex also requires the updated helper to observe the current `SessionStart` and a subsequent `turn_context`. If the current start was not observed or hook state changes during export, handoff uses default permissions instead of inheriting permissions from an earlier run. Normal modes or missing/unparseable latest permission data add no bypass option and leave the target CLI defaults in place.
+
+For an AGY source, official statusline data does not expose the current permission mode. Its session-specific **Handoff target permissions** choice (`handoffPermissionMode: "default"` or `"bypass"`) defaults to normal permissions; selecting bypass adds `--yolo` for Codex or `--dangerously-skip-permissions` for Claude. All these rules apply to both **Ask every time** and explicitly registered automatic handoffs. AGY targets run as `agy [--dangerously-skip-permissions] --prompt-interactive PROMPT`, with the optional flag included only when bypass was confirmed or explicitly selected for that source.
+
+**Preserving original records is different from cloning a model's entire context.** Running tools/processes, the model's internal neural state, and the original product's system prompt cannot be transferred. The target's context length and actual file reading also matter, so a perfect copy is not claimed before all records have been confirmed as read.
 
 ## Storage and commands
 
@@ -149,9 +158,10 @@ The default data directory is `USERPROFILE/.local/state/herdr-context-bridge` on
 | `node src/cli.mjs status` | Query usage, bindings, and jobs, and evaluate the current automatic policy |
 | `node src/cli.mjs locale` | Read-only query of the detected display language |
 | `node src/cli.mjs config` | Read current configuration |
-| `node src/cli.mjs config '{"mode":"ask","autoSessions":[]}'` | Clear automatic registration |
-| `node src/cli.mjs sessions claude /absolute/workdir` | List candidate Claude sessions; `codex` is also supported |
-| `node src/cli.mjs bind '<JSON>'` | Bind a candidate using `terminalId`, `provider`, `id`, and `cwd` |
+| `node src/cli.mjs config '{"mode":"ask","autoSessions":[],"autoTargets":{}}'` | Clear registered automatic sources and targets |
+| `node src/cli.mjs config '{"mode":"auto","autoSessions":["agy:SESSION_ID"],"autoTargets":{"agy:SESSION_ID":"codex"}}'` | Register a bound AGY source and its explicit Codex target |
+| `node src/cli.mjs sessions claude /absolute/workdir` | List session candidates; `codex` and observed `agy` sessions are also supported |
+| `node src/cli.mjs bind '<JSON>'` | Bind a candidate using `terminalId`, `provider`, `id`, and `cwd`; for AGY, optionally choose target permissions with `handoffPermissionMode: "default"` or `"bypass"` |
 | `node src/cli.mjs handoff '<JSON>'` | Request a manual handoff using `sourceKey`, `target`, `automatic:false`, and optional `space` |
 | `node src/cli.mjs job <jobId>` | Query a specific handoff job |
 
@@ -164,7 +174,7 @@ Public query/configuration/handoff commands output JSON and return `{ "error": "
 | `XDG_CONFIG_HOME` | Herdr configuration base; uses its `herdr-app` subdirectory when `HERDR_APP_HOME` is unset |
 | `HC_TERMINAL_ID` | Source terminal identifier passed by Herdr to hooks |
 
-The installer targets the default `~/.claude` and `~/.codex` configuration directories. Configurations using multiple separate CLI authentication/configuration directories are outside the scope of this installation flow.
+The installer targets the default `~/.claude`, `~/.codex`, and `~/.gemini/antigravity-cli` configuration directories. Configurations using multiple separate CLI authentication/configuration directories are outside the scope of this installation flow.
 
 For operation and layout details, see [RECIPE.md](RECIPE.md); for changes, see [CHANGELOG.md](CHANGELOG.md). Official interfaces are documented in [Codex app-server](https://learn.chatgpt.com/docs/app-server), [Codex hooks](https://learn.chatgpt.com/docs/hooks), [Claude statusline](https://code.claude.com/docs/en/statusline), and [Claude hooks](https://code.claude.com/docs/en/hooks).
 

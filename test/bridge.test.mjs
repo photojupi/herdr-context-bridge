@@ -6,16 +6,80 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {atomicJson,readJson} from '../src/storage.mjs';
 import {startHandoff,runJob,bindSession,reconcileJobs,saveConfig,getStatus} from '../src/bridge.mjs';
+import {capture} from '../src/capture.mjs';
 
-async function fixture() {
+async function fixture(provider='claude') {
   const stateDir=await mkdtemp(join(tmpdir(),'bridge-job-'));
-  const source={provider:'claude',id:'abc',cwd:'/tmp/project',terminalId:'t1',trustedBinding:true,updatedAt:Date.now()};
-  await atomicJson(join(stateDir,'sessions','claude-abc.json'),source);
+  const source={provider,id:'abc',cwd:'/tmp/project',terminalId:'t1',trustedBinding:true,updatedAt:Date.now(),...(provider==='agy'?{observationSource:'statusline',agentIdle:true}:{})};
+  await atomicJson(join(stateDir,'sessions',`${provider}-abc.json`),source);
   await atomicJson(join(stateDir,'terminals','t1.json'),source);
-  const terminals=async()=>[{address:'t1',cwd:'/tmp/project',agent:'claude-code',status:'idle',state:'live'}];
+  const terminals=async()=>[{address:'t1',cwd:'/tmp/project',agent:provider==='claude'?'claude-code':provider==='agy'?'antigravity':provider,status:'idle',state:'live'}];
   const spaces=async()=>[{id:'space1',machine:null,tabs:[{id:'tab1',terminals:[{terminal:'t1'}]}]}];
   return {stateDir,source,terminals,spaces,installed:()=>true,spawnWorker:()=>{}};
 }
+test('all six provider handoff routes preserve the source directory and selected target',async()=>{
+  for(const provider of ['claude','codex','agy']) for(const target of ['claude','codex','agy'].filter(value=>value!==provider)) {
+    const options=await fixture(provider);
+    const {jobId}=await startHandoff({sourceKey:`${provider}:abc`,target},options);
+    let launch;
+    await runJob(jobId,{...options,createBundle:async()=>({directory:'/tmp/bundle',prompt:'read'}),launch:async args=>{launch=args;return {terminal:'t2'};}});
+    assert.deepEqual(launch.argv.slice(2),['launch',target,jobId,'0','read']);
+    assert.equal(launch.folder,options.source.cwd);
+  }
+});
+test('AGY handoff requires fresh idle statusLine state before and after export',async()=>{
+  for(const change of [{agentIdle:false},{updatedAt:Date.now()-600001}]) {
+    const options=await fixture('agy');
+    await atomicJson(join(options.stateDir,'sessions','agy-abc.json'),{...options.source,...change});
+    await assert.rejects(startHandoff({sourceKey:'agy:abc',target:'codex'},options));
+  }
+  const options=await fixture('agy');
+  const {jobId}=await startHandoff({sourceKey:'agy:abc',target:'claude'},options);
+  await runJob(jobId,{...options,createBundle:async()=>{
+    await atomicJson(join(options.stateDir,'sessions','agy-abc.json'),{...options.source,agentIdle:false});
+    return {directory:'/tmp/bundle',prompt:'read'};
+  },launch:async()=>assert.fail('A working AGY source must not launch a target')});
+  assert.equal((await readJson(join(options.stateDir,'jobs',jobId+'.json'))).status,'failed');
+});
+test('AGY handoff permissions are explicitly bound and propagated only for that session',async()=>{
+  const options=await fixture('agy');
+  options.listSessions=async()=>[options.source];
+  const input={terminalId:'t1',provider:'agy',id:'abc',cwd:options.source.cwd};
+  await assert.rejects(bindSession({...input,handoffPermissionMode:'yolo'},options));
+  const binding=await bindSession({...input,handoffPermissionMode:'bypass'},options);
+  assert.equal(binding.handoffPermissionMode,'bypass');
+  const {jobId}=await startHandoff({sourceKey:'agy:abc',target:'codex'},options);
+  let launch;
+  await runJob(jobId,{...options,createBundle:async()=>({directory:'/tmp/bundle',prompt:'read'}),launch:async args=>{launch=args;return {terminal:'t2'};}});
+  assert.equal(launch.argv.at(-1),'bypass');
+  assert.equal((await readJson(join(options.stateDir,'jobs',jobId+'.json'))).permissionMode,'bypass');
+});
+test('automatic AGY routes require a selected target and recheck that target after export',async()=>{
+  const options=await fixture('agy');
+  await assert.rejects(saveConfig({mode:'auto',autoSessions:['agy:abc']},options));
+  await saveConfig({mode:'auto',autoSessions:['agy:abc'],autoTargets:{'agy:abc':'claude'}},options);
+  for(const [provider,remainingPercent] of [['agy',5],['claude',90],['codex',90]]) await atomicJson(join(options.stateDir,`quota-${provider}.json`),{provider,observedAt:Date.now(),windows:[{id:'test',remainingPercent,resetsAt:Date.now()+60000}]});
+  await assert.rejects(startHandoff({sourceKey:'agy:abc',target:'codex',automatic:true},options));
+  const {jobId}=await startHandoff({sourceKey:'agy:abc',target:'claude',automatic:true},options);
+  await runJob(jobId,{...options,createBundle:async()=>{
+    await saveConfig({autoTargets:{'agy:abc':'codex'}},options);
+    return {directory:'/tmp/bundle',prompt:'read'};
+  },launch:async()=>assert.fail('A changed automatic destination must not launch')});
+  assert.equal((await readJson(join(options.stateDir,'jobs',jobId+'.json'))).status,'failed');
+});
+test('status follows registered AGY destinations and does not auto-launch while AGY is busy',async()=>{
+  for(const agentIdle of [true,false]) {
+    const options=await fixture('agy');
+    const source={...options.source,agentIdle};
+    await atomicJson(join(options.stateDir,'sessions','agy-abc.json'),source);
+    await atomicJson(join(options.stateDir,'terminals','t1.json'),source);
+    await saveConfig({mode:'auto',autoSessions:['agy:abc'],autoTargets:{'agy:abc':'codex'}},options);
+    for(const [provider,remainingPercent] of [['agy',5],['claude',90],['codex',90]]) await atomicJson(join(options.stateDir,`quota-${provider}.json`),{provider,observedAt:Date.now(),windows:[{id:'test',remainingPercent,resetsAt:Date.now()+60000}]});
+    const status=await getStatus(options);
+    assert.equal(status.jobs.length,agentIdle?1:0);
+    if(agentIdle)assert.equal(status.jobs[0].target,'codex');
+  }
+});
 test('automatic request cannot bypass default approval setting',async()=>{
   const options=await fixture();
   await assert.rejects(startHandoff({sourceKey:'claude:abc',target:'codex',automatic:true},options),error=>error.message.startsWith(message('자동 인계 불가: {reason}',{reason:''})));
@@ -54,6 +118,62 @@ test('launch failure after dispatch stays uncertain and prevents a duplicate tar
   assert.equal((await readJson(join(options.stateDir,'sessions','claude-abc.json'))).id,'abc');
   assert.equal((await readJson(join(options.stateDir,'jobs',jobId+'.json'))).launchUncertain,true);
   await assert.rejects(startHandoff({sourceKey:'claude:abc',target:'codex'},options),{message:message('이미 이 세션의 인계가 진행 중이거나 완료되었습니다.')});
+});
+
+test('handoff maps confirmed source bypass to the target and records the selected mode',async()=>{
+  for(const provider of ['claude','codex']) {
+    const options=await fixture();
+    await capture(provider,{session_id:'abc',cwd:'/tmp/project',hook_event_name:'SessionStart',permission_mode:'bypassPermissions'},{stateDir:options.stateDir,env:{HC_TERMINAL_ID:'t1'}});
+    options.terminals=async()=>[{address:'t1',cwd:'/tmp/project',agent:provider,status:'idle',state:'live'}];
+    const target=provider==='claude'?'codex':'claude';
+    const {jobId}=await startHandoff({sourceKey:`${provider}:abc`,target},options);
+    let launch;
+    await runJob(jobId,{...options,createBundle:async()=>({directory:'/tmp/bundle',manifest:{permissionMode:provider==='codex'?'bypass':'default'},prompt:'read'}),launch:async args=>{launch=args;return {terminal:'t2'};}});
+    assert.deepEqual(launch.argv.slice(2),['launch',target,jobId,'0','read','bypass']);
+    assert.equal((await readJson(join(options.stateDir,'jobs',jobId+'.json'))).permissionMode,'bypass');
+  }
+});
+
+test('handoff rechecks Claude permission mode after creating the bundle',async()=>{
+  const options=await fixture(),captureOptions={stateDir:options.stateDir,env:{HC_TERMINAL_ID:'t1'}};
+  const event={session_id:'abc',cwd:'/tmp/project',hook_event_name:'Stop'};
+  await capture('claude',{...event,permission_mode:'bypassPermissions'},captureOptions);
+  const {jobId}=await startHandoff({sourceKey:'claude:abc',target:'codex'},options);
+  let launch;
+  await runJob(jobId,{...options,createBundle:async()=>{
+    await capture('claude',{...event,permission_mode:'default'},captureOptions);
+    return {directory:'/tmp/bundle',manifest:{permissionMode:'bypass'},prompt:'read'};
+  },launch:async args=>{launch=args;return {terminal:'t2'};}});
+  assert.deepEqual(launch.argv.slice(2),['launch','codex',jobId,'0','read']);
+  assert.equal((await readJson(join(options.stateDir,'jobs',jobId+'.json'))).permissionMode,'default');
+});
+
+test('Codex hook and caller-supplied bypass cannot replace missing rollout evidence',async()=>{
+  const options=await fixture();
+  await capture('codex',{session_id:'abc',cwd:'/tmp/project',hook_event_name:'SessionStart',permission_mode:'bypassPermissions'},{stateDir:options.stateDir,env:{HC_TERMINAL_ID:'t1'}});
+  options.terminals=async()=>[{address:'t1',cwd:'/tmp/project',agent:'codex',status:'idle',state:'live'}];
+  const {jobId}=await startHandoff({sourceKey:'codex:abc',target:'claude',permissionMode:'bypass'},options);
+  let launch;
+  await runJob(jobId,{...options,createBundle:async()=>({directory:'/tmp/bundle',prompt:'read'}),launch:async args=>{launch=args;return {terminal:'t2'};}});
+  assert.deepEqual(launch.argv.slice(2),['launch','claude',jobId,'0','read']);
+  assert.equal((await readJson(join(options.stateDir,'jobs',jobId+'.json'))).permissionMode,'default');
+});
+
+test('a Codex resume or approval change during export invalidates bypass evidence',async()=>{
+  for(const [hook,permission_mode] of [['SessionStart','bypassPermissions'],['Stop','default'],['Stop','bypassPermissions']]) {
+    const options=await fixture(),captureOptions={stateDir:options.stateDir,env:{HC_TERMINAL_ID:'t1'}};
+    const event={session_id:'abc',cwd:'/tmp/project',permission_mode:'bypassPermissions'};
+    await capture('codex',{...event,hook_event_name:'SessionStart'},captureOptions);
+    options.terminals=async()=>[{address:'t1',cwd:'/tmp/project',agent:'codex',status:'idle',state:'live'}];
+    const {jobId}=await startHandoff({sourceKey:'codex:abc',target:'claude'},options);
+    let launch;
+    await runJob(jobId,{...options,createBundle:async()=>{
+      await capture('codex',{...event,hook_event_name:hook,permission_mode},captureOptions);
+      return {directory:'/tmp/bundle',manifest:{permissionMode:'bypass'},prompt:'read'};
+    },launch:async args=>{launch=args;return {terminal:'t2'};}});
+    assert.deepEqual(launch.argv.slice(2),['launch','claude',jobId,'0','read']);
+    assert.equal((await readJson(join(options.stateDir,'jobs',jobId+'.json'))).permissionMode,'default');
+  }
 });
 test('manual binding validates an actual candidate and live cwd',async()=>{
   const options=await fixture();
@@ -207,7 +327,7 @@ test('status displays observed AGY buckets and legacy usage without inferring au
   assert.equal(status.quotas.agy.windows[0].remainingPercent,42);
   assert.equal(status.quotas.claude.observedAt,now-700000);
   assert.equal(status.config.mode,'ask');
-  await assert.rejects(startHandoff({sourceKey:'claude:abc',target:'agy'},options),{message:message('다른 제공자를 대상으로 선택해 주세요.')});
+  assert.ok((await startHandoff({sourceKey:'claude:abc',target:'agy'},options)).jobId);
 });
 
 test('an official observed account remains visible when no percentage is available',async()=>{

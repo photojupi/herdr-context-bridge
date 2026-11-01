@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { decideHandoff, quotaHealth, validateConfig } from '../src/policy.mjs';
+import * as policy from '../src/policy.mjs';
 
 const now = 1_800_000_000_000;
 const quota = (remainingPercent = 5, extra = {}) => ({observedAt:now, windows:[{id:'primary',remainingPercent,resetsAt:now+3600000}],...extra});
@@ -37,4 +38,24 @@ test('invalid config cannot silently arm automatic sessions', () => {
   assert.throws(()=>validateConfig({threshold:NaN}));
   assert.throws(()=>validateConfig({threshold:100}));
   assert.throws(()=>validateConfig({autoSessions:['../../x']}));
+});
+test('automatic targets preserve legacy routes and require a selected destination for AGY', () => {
+  assert.equal(typeof policy.autoTarget,'function');
+  assert.equal(policy.autoTarget({}, {provider:'claude',id:'abc'}),'codex');
+  assert.equal(policy.autoTarget({}, {provider:'codex',id:'abc'}),'claude');
+  assert.equal(policy.autoTarget({}, {provider:'agy',id:'abc'}),null);
+  const config=validateConfig({mode:'auto',autoSessions:['agy:abc'],autoTargets:{'agy:abc':'codex'}});
+  assert.deepEqual(config.autoTargets,{'agy:abc':'codex'});
+  assert.equal(policy.autoTarget(config,{provider:'agy',id:'abc'}),'codex');
+  const automatic={...base,source:{...base.source,provider:'agy'},config};
+  assert.equal(decideHandoff({...automatic,target:'codex'}).action,'auto');
+  assert.equal(decideHandoff({...automatic,target:'claude'}).action,'ask');
+  assert.equal(decideHandoff({...automatic,config:{...config,autoTargets:{}}}).action,'ask');
+  assert.equal(decideHandoff({...automatic,config:{...config,autoSessions:[]}}).action,'ask');
+});
+test('automatic target validation rejects invalid providers, source keys and self destinations', () => {
+  for(const autoTargets of [null,[],true,{'agy:abc':'agy'},{'claude:abc':'other'},{'other:abc':'agy'},{'agy:../abc':'claude'}]) {
+    assert.throws(()=>validateConfig({autoTargets}),JSON.stringify(autoTargets));
+  }
+  assert.deepEqual(validateConfig({autoTargets:{'claude:abc':'agy'}}).autoTargets,{'claude:abc':'agy'});
 });

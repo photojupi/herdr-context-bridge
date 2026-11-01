@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "Claude/Codex usage monitoring and context handoff for herdr-app",
+  "description": "Claude/Codex/AGY usage monitoring and context handoff for herdr-app",
   "engines": { "node": ">=22.5.0" },
   "scripts": {
     "test": "node --test \"test/*.test.mjs\"",

@@ -148,18 +148,24 @@ test('invalid, future and incomplete observations cannot prompt a handoff', () =
   assert.deepEqual(lowQuotaAlerts({ ...quota(), observedAt: now + 61_000 }, 10, now, {}), []);
 });
 
-test('source picker includes only local Claude/Codex terminal panes with a known cwd', () => {
+test('source picker includes local Claude, Codex and AGY terminal panes with a known cwd', () => {
   const spaces = [{ id: 'local', machine: null, tabs: [{ id: 'lt' }] }, { id: 'remote', machine: 'server', tabs: [{ id: 'rt' }] }];
   const panes = [
     { terminal: 't1', tab: 'lt', cwd: '/repo', title: 'work', program: { key: 'claude' } },
     { terminal: 't2', tab: 'rt', cwd: '/repo', program: { key: 'codex' } },
     { terminal: 't3', tab: 'lt', cwd: '/repo', program: { key: 'shell' } },
     { terminal: 't4', tab: 'lt', cwd: null, program: { key: 'codex' } },
+    { terminal: 't5', tab: 'lt', cwd: '/repo', program: { key: 'agy' } },
+    { terminal: 't6', tab: 'lt', cwd: '/repo', program: { key: 'antigravity' } },
+    { terminal: 't7', tab: 'lt', cwd: '/repo', program: { key: 'antigravity-cli' } },
   ];
   const sources = localSources(panes, spaces, [{ address: 't3', app: 'codex' }]);
   assert.deepEqual(sources.map(({ terminalId, provider, space }) => ({ terminalId, provider, space })), [
     { terminalId: 't1', provider: 'claude', space: 'local' },
     { terminalId: 't3', provider: 'codex', space: 'local' },
+    { terminalId: 't5', provider: 'agy', space: 'local' },
+    { terminalId: 't6', provider: 'agy', space: 'local' },
+    { terminalId: 't7', provider: 'agy', space: 'local' },
   ]);
   assert.equal(sourceKey({ provider: 'codex', id: 'session-1' }), 'codex:session-1');
 });

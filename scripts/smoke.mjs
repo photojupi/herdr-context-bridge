@@ -103,14 +103,35 @@ try {
   const common = `const fs=require('node:fs');
 const log=entry=>fs.appendFileSync(process.env.SMOKE_CALLS,JSON.stringify(entry)+'\\n');
 const args=process.argv.slice(2);`;
+  const targetScript = provider => `
+const provider=${JSON.stringify(provider)};
+if(!process.env.HERDR_BRIDGE_JOB_ID){log({binary:provider,args});throw Error('Only a recorded handoff target may run; source and usage probes are forbidden');}
+const path=require('node:path');
+const job=JSON.parse(fs.readFileSync(path.join(process.env.HERDR_BRIDGE_STATE_DIR,'jobs',process.env.HERDR_BRIDGE_JOB_ID+'.json'),'utf8'));
+const expected={
+  'claude:source-manual':{target:'codex',flags:['--no-daemon']},
+  'claude:source-auto':{target:'codex',flags:['--no-daemon','--yolo']},
+  'agy:agy-to-claude':{target:'claude',flags:[]},
+  'agy:agy-to-codex':{target:'codex',flags:['--no-daemon','--yolo']},
+  'claude:source-to-agy':{target:'agy',flags:['--dangerously-skip-permissions','--prompt-interactive']},
+}[job.sourceKey];
+if(!expected||expected.target!==provider||job.target!==provider||job.status!=='preparing'||!job.launchStartedAt)throw Error('Unexpected target or unowned launch');
+if(args.length!==expected.flags.length+1||JSON.stringify(args.slice(0,-1))!==JSON.stringify(expected.flags))throw Error('Target argv boundary changed');
+const match=args.at(-1).match(/"(?:\\\\.|[^"\\\\])*START_HERE\\.md"/);
+if(!match)throw Error('No quoted archive index path');
+const indexPath=JSON.parse(match[0]),directory=path.dirname(indexPath);
+const index=fs.readFileSync(indexPath,'utf8');
+const manifest=JSON.parse(fs.readFileSync(path.join(directory,'manifest.json'),'utf8'));
+if(!manifest.complete||!manifest.raw.length||!manifest.chunks.length)throw Error('Incomplete archive');
+for(const chunk of manifest.chunks){if(!index.includes(chunk.path))throw Error('Missing chunk index');fs.readFileSync(path.join(directory,chunk.path));}
+for(const raw of manifest.raw)fs.readFileSync(path.join(directory,raw.path));
+log({binary:provider+'-target',args,cwd:process.cwd(),origin:process.env.HERDR_BRIDGE_AUTO_ORIGIN,jobId:process.env.HERDR_BRIDGE_JOB_ID,indexPath,chunkCount:manifest.chunks.length});`;
   await executable('hc', `${common}
 log({binary:'hc',args});
 if(JSON.stringify(args)!==JSON.stringify(['ls','--json']))throw Error('Source input or mutation is forbidden');
 process.stdout.write(fs.readFileSync(process.env.SMOKE_TERMINALS));`);
-  await executable('claude', `${common}
-log({binary:'claude',args});throw Error('The source CLI must never be invoked');`);
-  await executable('agy', `${common}
-log({binary:'agy',args});throw Error('AGY must not be launched to check authentication or usage');`);
+  await executable('claude', `${common}${targetScript('claude')}`);
+  await executable('agy', `${common}${targetScript('agy')}`);
   await executable('codex', `${common}
 if(args[0]==='app-server'){
   require('node:readline').createInterface({input:process.stdin}).on('line',line=>{
@@ -123,16 +144,7 @@ if(args[0]==='app-server'){
     process.stdout.write(JSON.stringify({id:message.id,result})+'\\n');
   });
 }else{
-  if(args.length!==2||args[0]!=='--no-daemon')throw Error('Target argv boundary changed');
-  const match=args[1].match(/"(?:\\\\.|[^"\\\\])*START_HERE\\.md"/);
-  if(!match)throw Error('No quoted archive index path');
-  const indexPath=JSON.parse(match[0]),directory=require('node:path').dirname(indexPath);
-  const index=fs.readFileSync(indexPath,'utf8');
-  const manifest=JSON.parse(fs.readFileSync(require('node:path').join(directory,'manifest.json'),'utf8'));
-  if(!manifest.complete||!manifest.raw.length||!manifest.chunks.length)throw Error('Incomplete archive');
-  for(const chunk of manifest.chunks){if(!index.includes(chunk.path))throw Error('Missing chunk index');fs.readFileSync(require('node:path').join(directory,chunk.path));}
-  for(const raw of manifest.raw)fs.readFileSync(require('node:path').join(directory,raw.path));
-  log({binary:'codex-target',args,cwd:process.cwd(),origin:process.env.HERDR_BRIDGE_AUTO_ORIGIN,jobId:process.env.HERDR_BRIDGE_JOB_ID,indexPath,chunkCount:manifest.chunks.length});
+${targetScript('codex')}
 }`);
   await executable('herdr-app', `${common}
 if(args.length===1&&args[0]==='ls'){
@@ -151,7 +163,7 @@ if(result.error||result.status!==0)throw Error(result.error?.message||result.std
 process.stdout.write(JSON.stringify({terminal:'target-'+process.pid,tab:'tab-'+process.pid}));`);
 
   const rawById = new Map();
-  for (const id of ['source-manual', 'source-auto']) {
+  for (const id of ['source-manual', 'source-auto', 'source-to-agy']) {
     const transcriptPath = join(env.CLAUDE_CONFIG_DIR, 'projects', 'smoke-project', `${id}.jsonl`);
     const raw = Buffer.from([
       { type: 'user', uuid: 'u1', parentUuid: null, cwd, sessionId: id, message: { role: 'user', content: 'Continue the temporary smoke fixture.' } },
@@ -160,15 +172,18 @@ process.stdout.write(JSON.stringify({terminal:'target-'+process.pid,tab:'tab-'+p
     ].map(JSON.stringify).join('\n') + '\n');
     await mkdir(dirname(transcriptPath), { recursive: true, mode: 0o700 });
     await writeFile(transcriptPath, raw, { mode: 0o600 });
-    rawById.set(id, { raw, transcriptPath });
+    rawById.set(id, { raw, transcriptPath, provider: 'claude' });
   }
   await putJson(terminalsFile, { terminals: [
     { address: 'source-terminal-manual', agent: 'claude-code', cwd, status: 'idle', state: 'live' },
     { address: 'source-terminal-auto', agent: 'claude-code', cwd, status: 'idle', state: 'live' },
+    { address: 'source-terminal-to-agy', agent: 'claude-code', cwd, status: 'idle', state: 'live' },
+    { address: 'agy-terminal-to-claude', agent: 'antigravity', cwd, status: 'idle', state: 'live' },
+    { address: 'agy-terminal-to-codex', agent: 'antigravity', cwd, status: 'idle', state: 'live' },
   ] });
   for (const [id, { transcriptPath }] of rawById) {
     const terminalId = id.replace('source-', 'source-terminal-');
-    const captured = await helper('capture', ['claude'], JSON.stringify({ session_id: id, transcript_path: transcriptPath, cwd, hook_event_name: 'SessionStart' }), { HC_TERMINAL_ID: terminalId });
+    const captured = await helper('capture', ['claude'], JSON.stringify({ session_id: id, transcript_path: transcriptPath, cwd, hook_event_name: 'SessionStart', ...(id !== 'source-manual' ? { permission_mode: 'bypassPermissions' } : {}) }), { HC_TERMINAL_ID: terminalId });
     assert.equal(captured.code, 0);
     assert.equal(captured.stdout, '');
   }
@@ -191,17 +206,51 @@ process.stdout.write(JSON.stringify({terminal:'target-'+process.pid,tab:'tab-'+p
   assert.ok(rejected.value.error.startsWith(t('자동 인계 불가: {reason}', { reason: '' }, locale)));
   assert.ok(!(await calls()).some(call => call.binary === 'herdr-app'));
 
-  for (const [id, automatic] of [['source-manual', false], ['source-auto', true]]) {
+  for (const [id, handoffPermissionMode] of [['agy-to-claude', 'default'], ['agy-to-codex', 'bypass']]) {
+    const logs = join(home, '.gemini', 'antigravity-cli', 'brain', id, '.system_generated', 'logs');
+    const transcriptPath = join(logs, 'transcript.jsonl');
+    const fullPath = join(logs, 'transcript_full.jsonl');
+    const compact = Buffer.from('{"step_index":0,"content":"shortened","truncated_fields":["content"]}\n');
+    const raw = Buffer.from([
+      { step_index: 0, source: 'USER_EXPLICIT', type: 'USER_INPUT', status: 'DONE', created_at: '2026-01-01T00:00:00Z', content: 'Continue the isolated AGY fixture.' },
+      { step_index: 1, source: 'MODEL', type: 'PLANNER_RESPONSE', status: 'DONE', created_at: '2026-01-01T00:00:01Z', thinking: '한국어 전체 기록 '.repeat(10000), tool_calls: [{ name: 'run_command', args: { CommandLine: 'fixture-only' } }] },
+      { step_index: 2, source: 'SYSTEM', type: 'GENERIC', status: 'DONE', created_at: '2026-01-01T00:00:02Z', content: 'Entire AGY tool result preserved.' },
+    ].map(JSON.stringify).join('\n') + '\n');
+    await mkdir(logs, { recursive: true, mode: 0o700 });
+    await writeFile(transcriptPath, compact, { mode: 0o600 });
+    await writeFile(fullPath, raw, { mode: 0o600 });
+    rawById.set(id, { raw, transcriptPath: fullPath, compact, compactPath: transcriptPath, provider: 'agy' });
+    const terminalId = id.replace('agy-', 'agy-terminal-');
+    const observed = await helper('statusline', ['agy'], JSON.stringify({ product: 'antigravity', session_id: id, conversation_id: id, cwd, transcript_path: transcriptPath, agent_state: 'idle' }), { HC_TERMINAL_ID: terminalId });
+    assert.equal(observed.code, 0);
+    const found = await helper('sessions', ['agy', cwd]);
+    assert.equal(found.code, 0);
+    assert.ok(found.value.sessions.some(session => session.id === id && session.observationSource === 'statusline'));
+    const bound = await helper('bind', [JSON.stringify({ provider: 'agy', id, cwd, terminalId, handoffPermissionMode })]);
+    assert.equal(bound.code, 0);
+    assert.equal(bound.value.handoffPermissionMode, handoffPermissionMode);
+    assert.equal(bound.value.agentIdle, true);
+  }
+  const scenarios = [
+    ['source-manual', 'codex', false, false],
+    ['source-auto', 'codex', true, true],
+    ['agy-to-claude', 'claude', false, false],
+    ['agy-to-codex', 'codex', true, true],
+    ['source-to-agy', 'agy', false, true],
+  ];
+  for (const [id, targetProvider, automatic, bypass] of scenarios) {
+    const { provider, raw, transcriptPath, compact, compactPath } = rawById.get(id);
     await rm(launchGate, { force: true });
     if (automatic) {
       const future = Date.now() + 3600000;
-      for (const [provider, remainingPercent] of [['claude', 5], ['codex', 90]]) {
-        await putJson(join(stateDir, `quota-${provider}.json`), { provider, observedAt: Date.now(), windows: [{ id: 'fixture', label: 'fixture', usedPercent: 100 - remainingPercent, remainingPercent, resetsAt: future }] });
+      for (const [quotaProvider, remainingPercent] of [[provider, 5], [targetProvider, 90]]) {
+        await putJson(join(stateDir, `quota-${quotaProvider}.json`), { provider: quotaProvider, observedAt: Date.now(), windows: [{ id: 'fixture', label: 'fixture', usedPercent: 100 - remainingPercent, remainingPercent, resetsAt: future }] });
       }
-      const config = await helper('config', [JSON.stringify({ mode: 'auto', autoSessions: ['claude:source-auto'] })]);
+      const sourceKey = `${provider}:${id}`;
+      const config = await helper('config', [JSON.stringify({ mode: 'auto', autoSessions: [sourceKey], ...(provider === 'agy' ? { autoTargets: { [sourceKey]: targetProvider } } : {}) })]);
       assert.equal(config.code, 0);
     }
-    const requested = await helper('handoff', [JSON.stringify({ sourceKey: `claude:${id}`, target: 'codex', automatic, space: 'smoke-space' })]);
+    const requested = await helper('handoff', [JSON.stringify({ sourceKey: `${provider}:${id}`, target: targetProvider, automatic, space: 'smoke-space' })]);
     assert.equal(requested.code, 0);
     const jobId = requested.value.jobId;
     jobs.add(jobId);
@@ -210,33 +259,43 @@ process.stdout.write(JSON.stringify({terminal:'target-'+process.pid,tab:'tab-'+p
     const job = await waitJob(jobId);
     assert.notEqual(job.workerPid, process.pid);
     assert.equal(job.delivery, 'initial-cli-prompt');
-    const target = (await calls()).find(call => call.binary === 'codex-target' && call.jobId === jobId);
+    assert.equal(job.permissionMode, bypass ? 'bypass' : 'default');
+    const target = (await calls()).find(call => call.binary === `${targetProvider}-target` && call.jobId === jobId);
     assert.ok(target);
+    const flags = targetProvider === 'codex' ? ['--no-daemon', ...(bypass ? ['--yolo'] : [])]
+      : [...(bypass ? ['--dangerously-skip-permissions'] : []), ...(targetProvider === 'agy' ? ['--prompt-interactive'] : [])];
+    assert.deepEqual(target.args.slice(0, -1), flags);
     assert.equal(target.origin, automatic ? '1' : '0');
     assert.equal(target.cwd, cwd);
     assert.equal(dirname(target.indexPath), job.directory);
     const origin = await json(join(stateDir, 'origins', `${job.terminalId}.json`));
     assert.equal(origin.autoOrigin, automatic);
     const manifest = await json(join(job.directory, 'manifest.json'));
-    const { raw, transcriptPath } = rawById.get(id);
     assert.deepEqual(await readFile(join(job.directory, manifest.raw[0].path)), raw);
     assert.deepEqual(await readFile(transcriptPath), raw);
+    if (compact) {
+      assert.deepEqual(await readFile(compactPath), compact);
+      assert.equal(manifest.latestLeaf, 2);
+      assert.equal(manifest.raw.length, 1);
+      assert.ok(manifest.chunks.length > 1);
+    }
+    assert.equal(manifest.raw[0].bytes, raw.length);
     assert.equal(manifest.raw[0].sha256, createHash('sha256').update(raw).digest('hex'));
     assert.deepEqual(Buffer.concat(await Promise.all(manifest.chunks.map(chunk => readFile(join(job.directory, chunk.path))))), raw);
     const launch = (await calls()).find(call => call.binary === 'herdr-app' && call.payload.argv[4] === jobId);
     assert.ok(launch);
     assert.equal(launch.payload.space, 'smoke-space');
-    assert.deepEqual(launch.payload.argv.slice(0, 6), [process.execPath, cli, 'launch', 'codex', jobId, automatic ? '1' : '0']);
-    assert.equal(launch.payload.argv.length, 7);
-    assert.equal(launch.payload.argv[6], target.args[1]);
-    assert.ok(!launch.payload.argv.some(arg => /--yolo|--dangerously|--bypass/.test(arg)));
+    assert.deepEqual(launch.payload.argv.slice(0, 6), [process.execPath, cli, 'launch', targetProvider, jobId, automatic ? '1' : '0']);
+    assert.equal(launch.payload.argv.length, bypass ? 8 : 7);
+    assert.equal(launch.payload.argv[6], target.args.at(-1));
+    assert.deepEqual(launch.payload.argv.slice(7), bypass ? ['bypass'] : []);
   }
-  assert.equal((await calls()).filter(call => call.binary === 'herdr-app').length, 2);
+  assert.equal((await calls()).filter(call => call.binary === 'herdr-app').length, 5);
   assert.equal((await calls()).filter(call => call.binary === 'claude').length, 0);
   assert.equal((await calls()).filter(call => call.binary === 'agy').length, 0);
   assert.ok((await calls()).filter(call => call.binary === 'hc').every(call => JSON.stringify(call.args) === '["ls","--json"]'));
   assert.ok((await calls()).filter(call => call.binary === 'codex-api').every(call => ['initialize', 'initialized', 'account/rateLimits/read'].includes(call.method)));
-  process.stdout.write(JSON.stringify({ ok: true, scenarios: ['observed-accounts-only', 'agy-statusline-without-cli-launch', 'default-ask-rejects-auto', 'manual-detached-handoff', 'armed-auto-detached-handoff', 'raw-sha256-and-complete-chunks', 'argv-and-origin-boundaries', 'source-remains-untouched'], jobs: jobs.size }) + '\n');
+  process.stdout.write(JSON.stringify({ ok: true, scenarios: ['observed-accounts-only', 'agy-statusline-without-cli-launch', 'default-ask-rejects-auto', 'manual-detached-handoff', 'armed-auto-detached-handoff', 'agy-to-claude', 'agy-to-codex-auto', 'claude-to-agy-interactive-bypass', 'source-permission-mode-preserved', 'raw-sha256-and-complete-chunks', 'argv-and-origin-boundaries', 'source-remains-untouched'], jobs: jobs.size }) + '\n');
 } finally {
   for (const child of children) child.kill('SIGKILL');
   // Only a worker ID returned by this run's own helper can be considered here.

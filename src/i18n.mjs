@@ -19,6 +19,42 @@ export function detectLocale({platform=process.platform,env=process.env,readAppl
 let detected;
 export const getLocale=()=>detected??=detectLocale();
 export const messages={
+  "AGY 상태줄에서 최신 유휴 상태를 확인해야 합니다.": {
+    "en": "AGY statusLine must confirm a recent idle state.",
+    "ko": "AGY 상태줄에서 최신 유휴 상태를 확인해야 합니다.",
+    "ja": "AGY のステータスラインで最新の待機状態を確認してください。",
+    "zh-CN": "需要 AGY 状态栏确认最近的空闲状态。"
+  },
+  "AGY session id와 transcript 경로가 일치하지 않습니다": {
+    "en": "The AGY session ID does not match the transcript path",
+    "ko": "AGY session id와 transcript 경로가 일치하지 않습니다",
+    "ja": "AGY セッション ID と記録パスが一致しません",
+    "zh-CN": "AGY 会话 ID 与记录路径不匹配"
+  },
+  "AGY 공식 statusLine 세션 관측이 필요합니다": {
+    "en": "An official AGY statusLine session observation is required",
+    "ko": "AGY 공식 statusLine 세션 관측이 필요합니다",
+    "ja": "AGY の公式 statusLine によるセッションの確認が必要です",
+    "zh-CN": "需要通过 AGY 官方 statusLine 观测会话"
+  },
+  "AGY 전체 transcript_full.jsonl 기록이 필요합니다": {
+    "en": "The full AGY transcript_full.jsonl record is required",
+    "ko": "AGY 전체 transcript_full.jsonl 기록이 필요합니다",
+    "ja": "AGY の完全な transcript_full.jsonl 記録が必要です",
+    "zh-CN": "需要完整的 AGY transcript_full.jsonl 记录"
+  },
+  "AGY 전체 기록에 잘린 필드가 있습니다": {
+    "en": "The full AGY record contains truncated fields",
+    "ko": "AGY 전체 기록에 잘린 필드가 있습니다",
+    "ja": "AGY の完全な記録に切り詰められたフィールドがあります",
+    "zh-CN": "AGY 完整记录中存在被截断的字段"
+  },
+  "AGY 원문에는 session id/cwd가 없어 공식 statusLine 관측과 검증된 경로로 식별합니다. step_index의 파일 순서로 읽고 요약/압축 관련 SYSTEM_MESSAGE도 원문과 함께 확인하십시오": {
+    "en": "AGY records have no session ID/cwd; identity comes from official statusLine observations and the validated path. Read step_index entries in file order, including SYSTEM_MESSAGE records about summaries or compaction. Separate subagent transcripts and external media are not included unless their contents appear in this record.",
+    "ko": "AGY 원문에는 session id/cwd가 없어 공식 statusLine 관측과 검증된 경로로 식별합니다. step_index의 파일 순서로 읽고 요약/압축 관련 SYSTEM_MESSAGE도 원문과 함께 확인하십시오. 별도 subagent 기록과 외부 첨부는 이 기록에 내용이 포함된 경우에만 보존됩니다.",
+    "ja": "AGY 記録には session id/cwd がないため、公式 statusLine の観測と検証済みパスで識別します。step_index をファイル順に読み、要約や圧縮に関する SYSTEM_MESSAGE も確認してください。個別のサブエージェント記録と外部メディアは、この記録に内容が含まれる場合のみ保存されます。",
+    "zh-CN": "AGY 原始记录没有 session id/cwd，通过官方 statusLine 观测和已验证路径识别。请按文件顺序阅读 step_index，并核对摘要或压缩相关的 SYSTEM_MESSAGE。独立子代理记录和外部媒体仅在其内容已包含于此记录时才会被保存。"
+  },
   "잘못된 식별자입니다.": {
     "en": "Invalid identifier.",
     "ko": "잘못된 식별자입니다.",

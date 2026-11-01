@@ -6,17 +6,17 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID,createHash} from 'node:crypto';
 import {atomicJson,readJson,jsonRecords,stateDirectory,safeId} from './storage.mjs';
-import {validateConfig,decideHandoff} from './policy.mjs';
+import {validateConfig,decideHandoff,autoTarget,FRESH_MS} from './policy.mjs';
 import {hasAccountObservation,localizeQuota} from './quota.mjs';
 import {resolveCommand} from './commands.mjs';
 
 const execFileAsync=promisify(execFile);
 const cliPath=fileURLToPath(new URL('./cli.mjs',import.meta.url));
-export const providerOf=agent=>agent==='claude-code'||agent==='claude'?'claude':agent==='codex'?'codex':null;
+export const providerOf=agent=>agent==='claude-code'||agent==='claude'?'claude':agent==='codex'?'codex':['agy','antigravity','antigravity-cli'].includes(agent)?'agy':null;
 const keyOf=s=>`${s.provider}:${s.id}`;
 function parseKey(key) {
   const [provider,id,...rest]=String(key).split(':');
-  if(!['claude','codex'].includes(provider)||rest.length) throw new Error(t('잘못된 세션입니다.'));
+  if(!['claude','codex','agy'].includes(provider)||rest.length) throw new Error(t('잘못된 세션입니다.'));
   safeId(id); return {provider,id};
 }
 export async function commandJson(binary,args) {
@@ -37,6 +37,7 @@ export async function saveConfig(input,{stateDir=stateDirectory()}={}) {
   for(const key of config.mode==='auto'?config.autoSessions:[]) {
     const s=await sourceAt(key,stateDir);
     if(s.autoOrigin) throw new Error(t('연결된 원본 세션만 자동 인계에 등록할 수 있습니다.'));
+    if(!autoTarget(config,s)) throw new Error(t('다른 제공자를 대상으로 선택해 주세요.'));
   }
   await atomicJson(join(stateDir,'config.json'),config); return config;
 }
@@ -50,9 +51,11 @@ async function sourceAt(key,dir) {
   const origin=await readJson(join(dir,'origins',`${source.terminalId}.json`));
   return {...source,autoOrigin:!!(source.autoOrigin||current.autoOrigin||origin?.autoOrigin)};
 }
+const agyReady=source=>source.observationSource==='statusline'&&source.agentIdle===true&&Number.isFinite(source.updatedAt)&&source.updatedAt<=Date.now()+60000&&Date.now()-source.updatedAt<=FRESH_MS;
 function sourceTerminal(source,terminals) {
   const terminal=terminals.find(t=>t.address===source.terminalId);
   if(!terminal||terminal.state!=='live'||providerOf(terminal.agent)!==source.provider||terminal.cwd!==source.cwd) throw new Error(t('원본 터미널과 세션 연결을 다시 확인해 주세요.'));
+  if(source.provider==='agy'&&!agyReady(source)) throw new Error(t('AGY 상태줄에서 최신 유휴 상태를 확인해야 합니다.'));
   if(!['idle','done'].includes(terminal.status)&&!(terminal.status==='blocked'&&source.error==='rate_limit')) throw new Error(t('원본 작업이 진행 중이거나 승인을 기다립니다. 작업이 멈춘 뒤 인계해 주세요.'));
   return terminal;
 }
@@ -64,6 +67,7 @@ function sourceSpace(source,spaces) {
 export async function bindSession(input,options={}) {
   const dir=options.stateDir||stateDirectory();
   safeId(input.terminalId); parseKey(`${input.provider}:${input.id}`);
+  if(input.handoffPermissionMode!==undefined&&(input.provider!=='agy'||!['default','bypass'].includes(input.handoffPermissionMode))) throw new Error(t('잘못된 세션입니다.'));
   const terminals=await (options.terminals||liveTerminals)();
   const terminal=terminals.find(t=>t.address===input.terminalId);
   if(!terminal||providerOf(terminal.agent)!==input.provider||terminal.cwd!==input.cwd) throw new Error(t('선택한 터미널의 폴더 또는 에이전트가 바뀌었습니다.'));
@@ -77,6 +81,7 @@ export async function bindSession(input,options={}) {
   const lifecycle=keyOf(current)===`${input.provider}:${input.id}`?{...previous,...current}:previous;
   const origin=await readJson(join(dir,'origins',`${input.terminalId}.json`));
   const source={...lifecycle,...chosen,terminalId:input.terminalId,trustedBinding:true,boundAt:Date.now(),bindingSource:'user'};
+  if(input.handoffPermissionMode!==undefined)source.handoffPermissionMode=input.handoffPermissionMode;
   if(lifecycle.autoOrigin||current.autoOrigin||chosen.autoOrigin||origin?.autoOrigin)source.autoOrigin=true;
   await atomicJson(join(dir,'sessions',`${source.provider}-${source.id}.json`),source);
   await atomicJson(join(dir,'terminals',`${source.terminalId}.json`),source);
@@ -114,7 +119,7 @@ export async function startHandoff(input,options={}) {
   const dir=options.stateDir||stateDirectory();
   await reconcileJobs(options);
   const source=await sourceAt(input.sourceKey,dir);
-  if(!['claude','codex'].includes(input.target)||input.target===source.provider) throw new Error(t('다른 제공자를 대상으로 선택해 주세요.'));
+  if(!['claude','codex','agy'].includes(input.target)||input.target===source.provider) throw new Error(t('다른 제공자를 대상으로 선택해 주세요.'));
   const terminal=sourceTerminal(source,await (options.terminals||liveTerminals)());
   const space=sourceSpace(source,await (options.spaces||liveSpaces)());
   if(input.space&&input.space!==space)throw new Error(t('선택한 공간(space)이 원본 터미널의 현재 공간과 다릅니다.'));
@@ -122,7 +127,7 @@ export async function startHandoff(input,options={}) {
   if(!installed) throw new Error(t('대상 CLI를 찾을 수 없습니다.'));
   if(input.automatic) {
     const config=await configAt(dir);
-    const decision=decideHandoff({config,source,status:terminal.status,installed,sourceQuota:await readJson(join(dir,`quota-${source.provider}.json`)),targetQuota:await readJson(join(dir,`quota-${input.target}.json`))});
+    const decision=decideHandoff({config,source,target:input.target,status:terminal.status,installed,sourceQuota:await readJson(join(dir,`quota-${source.provider}.json`)),targetQuota:await readJson(join(dir,`quota-${input.target}.json`))});
     if(decision.action!=='auto') throw new Error(t('자동 인계 불가: {reason}',{reason:decision.reason}));
     const attempted=await readJson(join(dir,'auto-attempts',`${source.provider}-${source.id}.json`));
     if(attempted) throw new Error(t('자동 인계는 이미 시도했습니다. 수동으로 상태를 확인해 주세요.'));
@@ -153,6 +158,7 @@ export async function runJob(id,options={}) {
   try {
     let source=await sourceAt(job.sourceKey,dir);
     sourceTerminal(source,await (options.terminals||liveTerminals)());
+    const permissionUpdatedAt=source.updatedAt;
     const createBundle=options.createBundle||(await import('./bundle.mjs')).createBundle;
     const bundle=await createBundle(source,{stateDir:dir});
     // Recheck after snapshot: an idle source may have started a new turn.
@@ -160,13 +166,18 @@ export async function runJob(id,options={}) {
     sourceTerminal(source,await (options.terminals||liveTerminals)());
     if(sourceSpace(source,await (options.spaces||liveSpaces)())!==job.space)throw new Error(t('준비 중 원본 터미널의 공간(space)이 바뀌었습니다. 다시 확인해 주세요.'));
     if(job.automatic) {
-      const decision=decideHandoff({config:await configAt(dir),source,status:'idle',installed:true,sourceQuota:await readJson(join(dir,`quota-${source.provider}.json`)),targetQuota:await readJson(join(dir,`quota-${job.target}.json`))});
+      const decision=decideHandoff({config:await configAt(dir),source,target:job.target,status:'idle',installed:true,sourceQuota:await readJson(join(dir,`quota-${source.provider}.json`)),targetQuota:await readJson(join(dir,`quota-${job.target}.json`))});
       if(decision.action!=='auto') throw new Error(t('준비 중 자동 인계 조건이 바뀌었습니다. 수동으로 확인해 주세요.'));
     }
     if((await readJson(path))?.status!=='preparing')throw new Error(t('중단된 인계 작업입니다.'));
+    const bypass=source.provider==='claude'?source.permissionMode==='bypass'
+      :source.provider==='agy'?source.handoffPermissionMode==='bypass'
+      :bundle.manifest?.permissionMode==='bypass'&&source.approvalBypass===true&&source.updatedAt===permissionUpdatedAt;
+    job.permissionMode=bypass?'bypass':'default';
     job.launchStartedAt=Date.now();
     await atomicJson(path,job);
-    const args={name:t('{provider} · 인계 {id}',{provider:job.target==='codex'?'Codex':'Claude',id:id.slice(0,8)}),folder:source.cwd,argv:[process.execPath,cliPath,'launch',job.target,id,job.automatic?'1':'0',bundle.prompt]};
+    const args={name:t('{provider} · 인계 {id}',{provider:{claude:'Claude',codex:'Codex',agy:'AGY'}[job.target],id:id.slice(0,8)}),folder:source.cwd,argv:[process.execPath,cliPath,'launch',job.target,id,job.automatic?'1':'0',bundle.prompt]};
+    if(job.permissionMode==='bypass')args.argv.push('bypass');
     if(job.space) args.space=job.space;
     const result=await (options.launch|| (args=>commandJson('herdr-app',['do','tab.new',JSON.stringify(args)])))(args);
     if(!result?.terminal) throw new Error(t('새 터미널 생성 결과를 확인할 수 없습니다.'));
@@ -205,9 +216,9 @@ export async function getStatus(options={}) {
   for(const source of bindings) {
     const origin=await readJson(join(dir,'origins',`${safeId(source.terminalId)}.json`));
     if(origin?.autoOrigin) source.autoOrigin=true;
-    const target=source.provider==='claude'?'codex':'claude',terminal=terminals.find(t=>t.address===source.terminalId);
+    const target=autoTarget(config,source),terminal=terminals.find(t=>t.address===source.terminalId);
     const attempted=await readJson(join(dir,'auto-attempts',`${source.provider}-${source.id}.json`));
-    source.decision=decideHandoff({config,source,sourceQuota:quotas[source.provider],targetQuota:quotas[target],status:terminal.status,installed:installed[target],already:!!attempted});
+    source.decision=decideHandoff({config,source,target,sourceQuota:quotas[source.provider],targetQuota:quotas[target],status:source.provider==='agy'&&!agyReady(source)?'working':terminal.status,installed:installed[target],already:!!attempted});
     if(source.decision.action==='auto') {
       try { await startHandoff({sourceKey:keyOf(source),target,automatic:true},options); }
       catch(e) { source.decision={action:'ask',reason:e.message}; }

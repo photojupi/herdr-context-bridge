@@ -102,10 +102,6 @@ export default class ContextBridge extends View {
     const alert = alerts[0];
     seen[alert.key] = alert.cycle;
     setShared('context-bridge.alerts', seen);
-    if (alert.provider === 'agy') {
-      notify({ title: this.tr('lowQuotaTitle', { provider: names.agy }), body: this.tr('lowUsageBody', { window: alert.window.label ?? alert.window.id, remaining: alert.window.remainingPercent }), level: 'warning' });
-      return;
-    }
     const automatic = this.data.bindings?.some((source) => source.provider === alert.provider && source.decision?.action === 'auto');
     notify({ title: this.tr('lowQuotaTitle', { provider: names[alert.provider] }), body: this.tr('lowQuotaBody', { window: alert.window.label ?? alert.window.id, remaining: alert.window.remainingPercent, action: this.tr(automatic ? 'autoStarted' : 'reviewPrompt') }), level: 'warning', action: { name: 'context-bridge.review' } });
     if (!automatic) this.openReview(alert.provider);
@@ -157,11 +153,47 @@ export default class ContextBridge extends View {
     return current ?? (selected && sourceKey(selected) === this.selected ? selected : null);
   }
 
+  selectedTarget(session = this.selectedSession()) {
+    if (!session) return null;
+    const key = sourceKey(session);
+    const target = shared('context-bridge.targets')?.[key] ?? this.data?.config?.autoTargets?.[key];
+    return Object.hasOwn(names, target) && target !== session.provider ? target : session.provider === 'claude' ? 'codex' : session.provider === 'codex' ? 'claude' : null;
+  }
+
+  targetPicker(t) {
+    const session = this.selectedSession();
+    const target = this.selectedTarget(session);
+    const card = v_flex().gap(6).child(this.text(this.tr('chooseTarget'), t));
+    for (const provider of Object.keys(names).filter((provider) => provider !== session.provider)) {
+      card.child(this.button(`target-${provider}`, `${target === provider ? '✓ ' : ''}${names[provider]}`, (_e, cx) => {
+        setShared('context-bridge.targets', { ...shared('context-bridge.targets'), [sourceKey(session)]: provider });
+        cx.notify();
+      }, t));
+    }
+    return card;
+  }
+
+  permissionPicker(t) {
+    const session = this.selectedSession();
+    const mode = session.handoffPermissionMode === 'bypass' ? 'bypass' : 'default';
+    const card = v_flex().gap(6).child(this.text(this.tr('handoffPermissions'), t));
+    for (const choice of ['default', 'bypass']) card.child(this.button(`handoff-permission-${choice}`, `${mode === choice ? '✓ ' : ''}${this.tr(choice === 'bypass' ? 'handoffPermissionBypass' : 'handoffPermissionDefault')}`, (_e, cx) => {
+      this.act(cx, async () => {
+        const result = await this.call('bind', JSON.stringify({ terminalId: session.terminalId, provider: session.provider, id: session.id, cwd: session.cwd, handoffPermissionMode: choice }));
+        const binding = result.binding ?? result;
+        this.data.bindings = this.data.bindings.map((item) => sourceKey(item) === sourceKey(binding) ? binding : item);
+        setShared('context-bridge.binding', binding);
+      });
+    }, t));
+    return card.child(this.text(this.tr('agyPermissionHint'), t));
+  }
+
   handoff(cx) {
     const session = this.selectedSession();
     const terminal = localSources(panes(), spaces(), agents()).find((item) => item.terminalId === session?.terminalId);
     if (!session || !terminal) { this.error = this.tr('bindFirst'); cx.notify(); return; }
-    const target = session.provider === 'claude' ? 'codex' : 'claude';
+    const target = this.selectedTarget(session);
+    if (!target) { this.error = this.tr('chooseTarget'); cx.notify(); return; }
     this.act(cx, async () => {
       const result = await this.call('handoff', JSON.stringify({ sourceKey: sourceKey(session), target, automatic: false, space: terminal.space }));
       this.jobs = [{ id: result.jobId, status: 'preparing', target, sourceKey: sourceKey(session) }, ...this.jobs];
@@ -215,7 +247,7 @@ export default class ContextBridge extends View {
     }
     if (!quota?.windows?.length) card.child(this.text(this.tr('noUsage'), t));
     if (quota?.error) card.child(this.text(message(quota.error), t, t.ansi1));
-    if (state === 'stale') card.child(this.text(this.tr(provider === 'agy' ? 'staleUsageHint' : 'staleHint'), t, t.ansi3));
+    if (state === 'stale') card.child(this.text(this.tr('staleHint'), t, t.ansi3));
     card.child(this.text(this.tr('updatedAt', { time: this.stamp(quota?.observedAt) }), t));
     if (provider === 'claude') card.child(this.text(this.tr('claudeStatusHint'), t));
     return card;
@@ -224,19 +256,22 @@ export default class ContextBridge extends View {
   settingsCard(t) {
     const config = this.data.config;
     const session = this.selectedSession();
+    const target = this.selectedTarget(session);
     const armed = config.autoSessions ?? [];
     const card = v_flex().gap(8).child(div().font_semibold().child(this.tr('settings')))
+      .when(Boolean(session), (el) => el.child(this.targetPicker(t)))
+      .when(session?.provider === 'agy', (el) => el.child(this.permissionPicker(t)))
       .child(h_flex().items_center().gap(6).child(div().flex_1().text_size(12).child(this.tr('threshold', { threshold: config.threshold })))
         .child(this.button('threshold-down', '−', (_e, cx) => this.configure({ threshold: Math.max(1, config.threshold - 5) }, cx), t, config.threshold > 1))
         .child(this.button('threshold-up', '+', (_e, cx) => this.configure({ threshold: Math.min(50, config.threshold + 5) }, cx), t, config.threshold < 50)))
       .child(v_flex().gap(6)
-        .child(this.button('mode-ask', `${config.mode === 'ask' ? '✓ ' : ''}${this.tr('modeAsk')}`, (_e, cx) => this.configure({ mode: 'ask', autoSessions: [] }, cx), t))
-        .child(this.button('mode-auto', this.tr('modeAuto'), (_e, cx) => this.configure({ mode: 'auto', autoSessions: [...new Set([...armed, sourceKey(session)])] }, cx), t, Boolean(session) && !session.autoOrigin)))
+        .child(this.button('mode-ask', `${config.mode === 'ask' ? '✓ ' : ''}${this.tr('modeAsk')}`, (_e, cx) => this.configure({ mode: 'ask', autoSessions: [], autoTargets: {} }, cx), t))
+        .child(this.button('mode-auto', this.tr('modeAuto'), (_e, cx) => this.configure({ mode: 'auto', autoSessions: [...new Set([...armed, sourceKey(session)])], autoTargets: { ...config.autoTargets, [sourceKey(session)]: target } }, cx), t, Boolean(session && target) && !session.autoOrigin)))
       .child(this.text(this.tr('autoHint'), t));
     if (config.mode === 'auto') for (const key of armed) {
       card.child(h_flex().items_center().gap(6)
-        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.ansi3).child(this.tr('autoArmed', { key })))
-        .child(this.button(`disarm-${key}`, this.tr('disarm'), (_e, cx) => this.configure({ autoSessions: armed.filter((item) => item !== key), mode: armed.length === 1 ? 'ask' : 'auto' }, cx), t)));
+        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.ansi3).child(this.tr('autoArmed', { key, target: names[config.autoTargets?.[key] ?? (key.startsWith('claude:') ? 'codex' : key.startsWith('codex:') ? 'claude' : null)] ?? this.tr('chooseTarget') })))
+        .child(this.button(`disarm-${key}`, this.tr('disarm'), (_e, cx) => this.configure({ autoSessions: armed.filter((item) => item !== key), autoTargets: Object.fromEntries(Object.entries(config.autoTargets ?? {}).filter(([item]) => item !== key)), mode: armed.length === 1 ? 'ask' : 'auto' }, cx), t)));
       const binding = this.data.bindings?.find((item) => sourceKey(item) === key);
       if (binding?.decision?.reason) card.child(this.text(binding.decision.reason, t));
     }
@@ -269,7 +304,7 @@ export default class ContextBridge extends View {
     const entries = quotaSummary(this.data?.quotas, this.data?.config?.threshold ?? 10, Date.now());
     const period = (entry) => this.tr(entry.period);
     const label = (entry) => `${period(entry) ? `${period(entry)} ` : ''}${entry.remaining === null ? '—' : `${entry.remaining}%`}${entry.warning ? ' !' : entry.state === 'stale' ? ' ~' : ''}`;
-    const hint = (entry) => `${names[entry.provider]}${entry.provider === 'agy' ? ` · ${entry.label} (${entry.bucketId})` : ''} · ${period(entry)} · ${entry.remaining === null ? this.tr('unavailable') : this.tr('remaining', { remaining: entry.remaining })} · ${this.tr(entry.state === 'expired' ? 'resetPending' : entry.state === 'fresh' ? 'fresh' : entry.state === 'stale' ? entry.provider === 'agy' ? 'staleUsageHint' : 'staleHint' : 'unavailable')}${entry.provider === 'agy' ? ` · ${this.tr('resetAt', { time: this.stamp(entry.resetsAt) })}` : ''}${entry.warning ? ` · ${this.tr('threshold', { threshold: this.data?.config?.threshold ?? 10 })}` : ''}`;
+    const hint = (entry) => `${names[entry.provider]}${entry.provider === 'agy' ? ` · ${entry.label} (${entry.bucketId})` : ''} · ${period(entry)} · ${entry.remaining === null ? this.tr('unavailable') : this.tr('remaining', { remaining: entry.remaining })} · ${this.tr(entry.state === 'expired' ? 'resetPending' : entry.state === 'fresh' ? 'fresh' : entry.state === 'stale' ? 'staleHint' : 'unavailable')}${entry.provider === 'agy' ? ` · ${this.tr('resetAt', { time: this.stamp(entry.resetsAt) })}` : ''}${entry.warning ? ` · ${this.tr('threshold', { threshold: this.data?.config?.threshold ?? 10 })}` : ''}`;
     const tooltip = [this.tr('openDetails'), ...(entries.length ? entries.map(hint) : [this.tr('awaitingUsage')]), ...(this.error ? [this.error] : [])].join('\n');
     const root = h_flex().id('context-bridge-summary').size_full().min_w(0).items_center().gap(8).px(6)
       .bg(t.chrome).text_color(t.foreground).text_size(11).overflow_hidden().cursor_pointer()
@@ -295,7 +330,7 @@ export default class ContextBridge extends View {
     if (!review) this.selected = shared('context-bridge.source') ?? this.selected;
     if (this.role === 'summary') return this.summary(t);
     const session = this.selectedSession();
-    const target = session?.provider === 'claude' ? 'codex' : 'claude';
+    const target = this.selectedTarget(session);
     const root = v_flex().id('context-bridge').size_full().min_h(0).bg(t.popover).text_color(t.foreground).text_size(12).track_focus(this.handle);
     root.on_key_down((event, cx) => { if (event.key === 'escape') { closeOverlay(props().overlay); cx.stop_propagation(); } });
     root.child(h_flex().px(14).py(12).gap(8).items_center().border_b(1).border_color(t.border)
@@ -318,12 +353,14 @@ export default class ContextBridge extends View {
         body.child(this.settingsCard(t));
       }
       if (review && session) body.child(v_flex().gap(7).p(12).rounded(8).bg(t.raised)
-        .child(div().font_semibold().child(`${names[session.provider]} → ${names[target]}`))
+        .child(this.targetPicker(t))
+        .when(session.provider === 'agy', (el) => el.child(this.permissionPicker(t)))
+        .child(div().font_semibold().child(`${names[session.provider]} → ${names[target] ?? this.tr('chooseTarget')}`))
         .child(this.text(this.tr('sourceSession', { id: session.id }), t)).child(this.text(this.tr('workingFolder', { cwd: session.cwd }), t))
         .child(this.text(this.tr('targetQuota', { state: this.tr(quotaState(this.data.quotas?.[target], Date.now()) === 'fresh' ? 'targetFresh' : 'targetCheck') }), t))
         .child(this.text(this.tr('recordsHint'), t))
         .child(this.text(this.tr('sourceHint'), t))
-        .when(!this.data.installed?.[target], (el) => el.child(this.text(this.tr('cliMissing', { provider: names[target] }), t, t.ansi1))));
+        .when(Boolean(target) && !this.data.installed?.[target], (el) => el.child(this.text(this.tr('cliMissing', { provider: names[target] }), t, t.ansi1))));
       body.children(this.jobCards(t));
       if (!review) body.child(this.text(this.tr('accountHint'), t));
     }

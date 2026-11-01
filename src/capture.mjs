@@ -65,16 +65,20 @@ async function acquireCaptureLock(lock) {
 
 export async function capture(provider, event, { stateDir, env = process.env } = {}) {
   stateDir ??= stateDirectory(env);
-  if (!['claude', 'codex'].includes(provider) || !event || typeof event !== 'object') return null;
+  if (!['claude', 'codex', 'agy'].includes(provider) || !event || typeof event !== 'object') return null;
   if (event.subagent_id || event.agent_id) return null;
-  const id = event.session_id ?? event.thread_id;
+  const id = event.session_id ?? event.thread_id ?? (provider === 'agy' ? event.conversation_id : undefined);
   const cwd = event.cwd ?? event.workspace?.current_dir;
   if (!safeId(id) || typeof cwd !== 'string' || !isAbsolute(cwd)) return null;
   const transcriptPath = event.transcript_path;
+  if (provider === 'agy' && (event.product !== 'antigravity' || !transcriptPath || event.conversation_id && event.conversation_id !== id)) return null;
   if (transcriptPath !== undefined && (typeof transcriptPath !== 'string' || !isAbsolute(transcriptPath))) return null;
   if (transcriptPath) {
     const file = basename(transcriptPath);
-    if (file !== `${id}.jsonl` && !(provider === 'codex' && file.startsWith('rollout-') && file.endsWith(`-${id}.jsonl`))) return null;
+    if (provider === 'agy') {
+      if (!['transcript.jsonl', 'transcript_full.jsonl'].includes(file) || basename(dirname(transcriptPath)) !== 'logs'
+        || basename(dirname(dirname(transcriptPath))) !== '.system_generated' || basename(dirname(dirname(dirname(transcriptPath)))) !== id) return null;
+    } else if (file !== `${id}.jsonl` && !(provider === 'codex' && file.startsWith('rollout-') && file.endsWith(`-${id}.jsonl`))) return null;
   }
   let terminalId = safeId(env.HC_TERMINAL_ID) ? env.HC_TERMINAL_ID : undefined;
   const lock = terminalId ? join(stateDir, 'capture-locks', terminalId) : null;
@@ -90,6 +94,24 @@ export async function capture(provider, event, { stateDir, env = process.env } =
     }
     const previous = await readJson(join(stateDir, 'sessions', `${provider}-${id}.json`));
     const session = { provider, id, cwd, updatedAt: Date.now(), trustedBinding: Boolean(terminalId) };
+    if (provider === 'claude') {
+      // StatusLine has no permission_mode; a new/resumed SessionStart must not
+      // inherit an old bypass decision when its current mode is unavailable.
+      const mode = event.permission_mode === undefined && event.hook_event_name !== 'SessionStart'
+        ? previous?.permissionMode : event.permission_mode === 'bypassPermissions' ? 'bypass' : 'default';
+      session.permissionMode = mode === 'bypass' ? 'bypass' : 'default';
+    } else if (provider === 'codex') {
+      session.approvalBypass = event.permission_mode === undefined && event.hook_event_name !== 'SessionStart'
+        ? previous?.approvalBypass === true : event.permission_mode === 'bypassPermissions';
+      if (event.hook_event_name === 'SessionStart') session.startedAt = session.updatedAt;
+      else if (previous?.startedAt !== undefined) session.startedAt = previous.startedAt;
+    } else {
+      session.observationSource = 'statusline';
+      session.agentIdle = event.agent_state === 'idle' && (event.pending_input_count ?? 0) === 0
+        && (event.tool_confirmation_pending ?? false) === false && (event.task_count ?? 0) === 0
+        && (event.subagents === undefined || Array.isArray(event.subagents) && event.subagents.every(agent => agent?.status === 'completed'));
+      if (previous?.handoffPermissionMode) session.handoffPermissionMode = previous.handoffPermissionMode;
+    }
     if (transcriptPath || previous?.transcriptPath) session.transcriptPath = transcriptPath || previous.transcriptPath;
     if (terminalId) session.terminalId = terminalId;
     if (env.HERDR_BRIDGE_AUTO_ORIGIN === '1' || origin?.autoOrigin || previous?.autoOrigin) session.autoOrigin = true;
@@ -136,7 +158,7 @@ export async function runStatusLine(input, { provider = 'claude', stateDir, env 
       const path = join(stateDir, `quota-${provider}.json`);
       if (hasAccountObservation(await readJson(path))) quota.accountObserved = true;
       await atomicJson(path, quota);
-      if (provider === 'claude') await capture('claude', payload, { stateDir, env });
+      await capture(provider, payload, { stateDir, env });
     }
   } catch {}
   const installation = await readJson(join(stateDir, 'install.json'), {});

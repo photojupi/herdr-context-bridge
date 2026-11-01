@@ -24,6 +24,56 @@ const events = [
   { type: 'assistant', uuid: 'latest', parentUuid: 'compact', message: { content: 'unfinished work' } },
 ];
 const text = events.map(e => JSON.stringify(e)).join('\n') + '\n';
+async function agyFixture(t, records) {
+  const f = await fixture(t, '');
+  const agyHome = join(f.home, 'agy');
+  const logs = join(agyHome, 'brain', 'agy-one', '.system_generated', 'logs');
+  await mkdir(logs, { recursive: true });
+  const transcriptPath = join(logs, 'transcript.jsonl');
+  const fullPath = join(logs, 'transcript_full.jsonl');
+  const raw = records.map(JSON.stringify).join('\n') + '\n';
+  await writeFile(transcriptPath, '{"step_index":0,"content":"truncated","truncated_fields":["content"]}\n');
+  await writeFile(fullPath, raw);
+  return { ...f, logs, fullPath, raw, source: { provider: 'agy', id: 'agy-one', cwd: f.home, observationSource: 'statusline', trustedBinding: true, transcriptPath }, options: { ...f.options, agyHome } };
+}
+test('AGY 전체 원문을 byte 그대로 보존하고 step_index 순서로 최신 기록을 찾는다', async t => {
+  const records = [
+    { step_index: 0, source: 'USER_EXPLICIT', type: 'USER_INPUT', status: 'DONE', created_at: '2026-01-01T00:00:00Z', content: 'original request' },
+    { step_index: 1, source: 'MODEL', type: 'PLANNER_RESPONSE', status: 'DONE', created_at: '2026-01-01T00:00:01Z', thinking: '가'.repeat(100000), tool_calls: [{ name: 'run_command', args: { CommandLine: 'npm test' } }] },
+    { step_index: 2, source: 'SYSTEM', type: 'GENERIC', status: 'DONE', created_at: '2026-01-01T00:00:02Z', content: 'full tool output', media: [{ mime_type: 'image/png', uri: '/external/image.png' }] },
+  ];
+  const f = await agyFixture(t, records);
+  await mkdir(join(f.logs, 'chunks', 'transcript_full'), { recursive: true });
+  await writeFile(join(f.logs, 'chunks', 'transcript_full', '00000000.jsonl'), 'duplicate provider chunks must not be exported');
+  const result = await createBundle(f.source, f.options);
+  assert.equal(result.manifest.raw.length, 1);
+  const raw = result.manifest.raw[0];
+  assert.equal(raw.originalPath, await (await import('node:fs/promises')).realpath(f.fullPath));
+  assert.equal(await readFile(join(result.directory, raw.path), 'utf8'), f.raw);
+  assert.equal(raw.sha256, createHash('sha256').update(f.raw).digest('hex'));
+  assert.equal((await Promise.all(result.manifest.chunks.map(c => readFile(join(result.directory, c.path), 'utf8')))).join(''), f.raw);
+  assert.equal(result.manifest.latestLeaf, 2);
+  assert.equal(result.manifest.latestRecord.step_index, 2);
+  assert.deepEqual(result.manifest.activeBranch, []);
+  assert.ok(result.manifest.latestChunks.length);
+  const index = (await readFile(join(result.directory, 'records.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
+  assert.deepEqual(index.map(r => r.step_index), [0, 1, 2]);
+  assert.equal(index[2].type, 'GENERIC');
+  assert.equal(index[2].created_at, '2026-01-01T00:00:02Z');
+  assert.equal(await readFile(f.fullPath, 'utf8'), f.raw);
+});
+test('AGY 관측 binding이나 전체 원문이 없으면 잘린 transcript로 성공하지 않는다', async t => {
+  const f = await agyFixture(t, [{ step_index: 0, source: 'USER_EXPLICIT', type: 'USER_INPUT', status: 'DONE', content: 'request' }]);
+  await assert.rejects(createBundle({ ...f.source, trustedBinding: false }, f.options), { message: message('AGY 공식 statusLine 세션 관측이 필요합니다') });
+  await assert.rejects(createBundle({ ...f.source, observationSource: undefined }, f.options), { message: message('AGY 공식 statusLine 세션 관측이 필요합니다') });
+  await rm(f.fullPath);
+  await assert.rejects(createBundle(f.source, f.options), { message: message('AGY 전체 transcript_full.jsonl 기록이 필요합니다') });
+});
+test('AGY full 원문의 id 경로 위조 및 truncated_fields 표시는 거부한다', async t => {
+  const f = await agyFixture(t, [{ step_index: 0, source: 'MODEL', type: 'PLANNER_RESPONSE', status: 'DONE', content: 'shortened', truncated_fields: ['content'] }]);
+  await assert.rejects(createBundle({ ...f.source, id: 'other' }, f.options), { message: message('AGY session id와 transcript 경로가 일치하지 않습니다') });
+  await assert.rejects(createBundle(f.source, f.options), { message: message('AGY 전체 기록에 잘린 필드가 있습니다') });
+});
 test('native absolute cwd and transcript paths produce a readable bundle on Windows and POSIX', async t => {
   const f = await fixture(t, text);
   const cwd = join(f.home, '작업 폴더');
@@ -106,6 +156,50 @@ test('Codex 전체 history를 full asc 모든 페이지로 저장하고 raw roll
   assert.ok(calls.filter(c => c.method === 'thread/turns/list').every(c => c.params.itemsView === 'full' && c.params.sortDirection === 'asc'));
   assert.equal(calls[0].params.includeTurns, undefined);
 });
+test('Codex bypass requires the latest matching turn to disable approvals and sandbox together', async t => {
+  const f = await fixture(t, JSON.stringify(events[0]) + '\n');
+  const codexHome = join(f.home, 'codex');
+  await mkdir(join(codexHome, 'sessions'), { recursive: true });
+  const path = join(codexHome, 'sessions', 'rollout.jsonl');
+  const source = { provider: 'codex', id: 'codex-one', cwd: f.home, approvalBypass: true, startedAt: Date.parse('2026-01-01T00:00:00Z') };
+  const meta = { type: 'session_meta', payload: { id: source.id, cwd: source.cwd } };
+  const bypass = { type: 'turn_context', timestamp: '2026-01-01T00:00:01Z', payload: { cwd: source.cwd, approval_policy: 'never', sandbox_policy: { type: 'danger-full-access' } } };
+  const codexClient = { async request(method) {
+    return method === 'thread/read' ? { thread: { ...source, path } } : { data: [], nextCursor: null };
+  } };
+  const cases = [
+    [[meta, bypass], 'bypass'],
+    [[meta, bypass, { ...bypass, payload: { ...bypass.payload, approval_policy: 'on-request' } }], 'default'],
+    [[meta, bypass, { ...bypass, payload: { ...bypass.payload, sandbox_policy: { type: 'workspace-write' } } }], 'default'],
+    [[meta, { ...bypass, payload: { ...bypass.payload, sandbox_policy: { type: 'external-sandbox' } } }], 'default'],
+    [[meta, bypass, { type: 'turn_context', payload: { cwd: source.cwd } }], 'default'],
+    [[meta, { ...bypass, payload: { ...bypass.payload, cwd: '/different' } }], 'default'],
+    [[{ ...meta, payload: { ...meta.payload, id: 'other-session' } }, bypass], 'default'],
+    [[bypass], 'default'],
+    [[meta, { ...bypass, timestamp: '2025-12-31T23:59:59Z' }], 'default'],
+    [[meta, { ...bypass, timestamp: undefined }], 'default'],
+    [[meta, { ...bypass, payload: { ...bypass.payload, permission_profile: { type: 'disabled' }, file_system_sandbox_policy: { kind: 'unrestricted' } } }], 'bypass'],
+    [[meta, { ...bypass, payload: { ...bypass.payload, permission_profile: { type: 'managed' } } }], 'default'],
+    [[meta, { ...bypass, payload: { ...bypass.payload, permission_profile: { type: 'external' } } }], 'default'],
+    [[meta, { ...bypass, payload: { ...bypass.payload, file_system_sandbox_policy: { kind: 'restricted' } } }], 'default'],
+  ];
+  for (const [records, expected] of cases) {
+    await writeFile(path, records.map(JSON.stringify).join('\n') + '\n');
+    const result = await createBundle(source, { ...f.options, codexHome, codexClient });
+    assert.equal(result.manifest.permissionMode, expected);
+  }
+  await writeFile(path, [meta, bypass].map(JSON.stringify).join('\n') + '\n');
+  for (const extra of [{ approvalBypass: false }, { approvalBypass: undefined }, { startedAt: undefined }]) {
+    const result = await createBundle({ ...source, ...extra }, { ...f.options, codexHome, codexClient });
+    assert.equal(result.manifest.permissionMode, 'default');
+  }
+  for (const tail of ['{"type":"turn_context","payload":', JSON.stringify({ type: 'turn_context', payload: { ...bypass.payload, padding: 'x'.repeat(1100000) } })]) {
+    await writeFile(path, [meta, bypass].map(JSON.stringify).join('\n') + '\n' + tail);
+    const result = await createBundle(source, { ...f.options, codexHome, codexClient });
+    assert.equal(result.manifest.permissionMode, 'default');
+  }
+});
+
 test('Codex summary only 응답이나 반복 cursor를 성공으로 위장하지 않는다', async t => {
   const f = await fixture(t, text);
   for (const partial of [true, false]) {

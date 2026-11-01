@@ -15,6 +15,37 @@ const event = { session_id: 'abc-123', cwd: '/work/project', transcript_path: '/
 const nodeCommand=code=>`node -e "eval(Buffer.from('${Buffer.from(code).toString('base64')}','base64').toString())"`;
 const echoCommand=nodeCommand('process.stdin.pipe(process.stdout)');
 
+test('Claude bypass permission mode survives statusLine refresh and follows later hook changes', async t => {
+  const stateDir = await state(t), options = { stateDir, env: { HC_TERMINAL_ID: 'terminal-1' } };
+  await capture('claude', { ...event, permission_mode: 'bypassPermissions' }, options);
+  await runStatusLine(JSON.stringify({ session_id: event.session_id, workspace: { current_dir: event.cwd } }), options);
+  const path = join(stateDir, 'sessions/claude-abc-123.json');
+  assert.equal(JSON.parse(await readFile(path, 'utf8')).permissionMode, 'bypass');
+  for (const permission_mode of ['default', 'acceptEdits', 'plan', 'dontAsk', 'auto', null, 'unknown']) {
+    await capture('claude', { ...event, permission_mode: 'bypassPermissions' }, options);
+    const session = await capture('claude', { ...event, hook_event_name: 'Stop', permission_mode }, options);
+    assert.equal(session.permissionMode, 'default');
+  }
+});
+
+test('missing permission metadata on a resumed session cannot reuse an old bypass mode', async t => {
+  const options = { stateDir: await state(t), env: { HC_TERMINAL_ID: 'terminal-1' } };
+  await capture('claude', { ...event, permission_mode: 'bypassPermissions' }, options);
+  assert.equal((await capture('claude', event, options)).permissionMode, 'default');
+});
+
+test('Codex hook approval bypass alone does not establish an unsandboxed yolo mode', async t => {
+  const options = { stateDir: await state(t), env: {} };
+  const session = await capture('codex', { ...event, permission_mode: 'bypassPermissions' }, options);
+  assert.notEqual(session.permissionMode, 'bypass');
+  assert.equal(session.approvalBypass, true);
+  assert.equal(session.startedAt, session.updatedAt);
+  const stopped = await capture('codex', { ...event, hook_event_name: 'Stop', permission_mode: 'default' }, options);
+  assert.equal(stopped.approvalBypass, false);
+  assert.equal(stopped.startedAt, session.startedAt);
+  assert.equal((await capture('codex', event, options)).approvalBypass, false);
+});
+
 test('Windows Claude statusLine selects Git Bash while AGY retains the default shell',async t=>{
   const {statusLineCommand}=await import('../src/capture.mjs');
   const root=await state(t),bin=join(root,'bin'),cmd=join(root,'cmd');
@@ -192,7 +223,7 @@ test('statusLine original command still runs when capture input is malformed', a
   assert.equal((await runStatusLine('not json\n', { stateDir, env: process.env })).stdout, 'not json\n');
 });
 
-test('AGY statusLine captures quota without session handoff binding and preserves original command streams', async t => {
+test('AGY statusLine without a valid transcript captures quota and preserves original command streams', async t => {
   const stateDir=await state(t);
   const command=nodeCommand('let s="";process.stdin.on("data",x=>s+=x);process.stdin.on("end",()=>{process.stdout.write(s);process.stderr.write("agy stderr");process.exitCode=7})');
   await writeFile(join(stateDir,'install.json'),JSON.stringify({originalAgyStatusLine:{type:'command',command}}));
@@ -204,6 +235,38 @@ test('AGY statusLine captures quota without session handoff binding and preserve
   assert.doesNotMatch(stored,/PRIVATE|email|agy-1|project/);
   await assert.rejects(readdir(join(stateDir,'sessions')),{code:'ENOENT'});
   await assert.rejects(readdir(join(stateDir,'terminals')),{code:'ENOENT'});
+});
+
+test('AGY statusLine binds its conversation and idle state without inferring bypass from sandbox', async t => {
+  const stateDir=await state(t),env={HC_TERMINAL_ID:'agy-terminal'};
+  const payload={product:'antigravity',session_id:'agy-one',conversation_id:'agy-one',cwd:'/project',transcript_path:'/profile/brain/agy-one/.system_generated/logs/transcript.jsonl',agent_state:'idle',sandbox:{enabled:false},cycle_mode:'auto',quota:{weekly:{remaining_fraction:0.2,reset_in_seconds:600}}};
+  await runStatusLine(JSON.stringify(payload),{provider:'agy',stateDir,env});
+  const path=join(stateDir,'sessions','agy-agy-one.json');
+  let session=JSON.parse(await readFile(path,'utf8'));
+  assert.equal(session.trustedBinding,true);
+  assert.equal(session.agentIdle,true);
+  assert.notEqual(session.permissionMode,'bypass');
+  assert.equal(session.transcriptPath,payload.transcript_path);
+  for(const extra of [{agent_state:'working'},{pending_input_count:1},{tool_confirmation_pending:true},{task_count:1},{subagents:[{status:'running'}]}]) {
+    await runStatusLine(JSON.stringify({...payload,...extra}),{provider:'agy',stateDir,env});
+    session=JSON.parse(await readFile(path,'utf8'));
+    assert.equal(session.agentIdle,false);
+  }
+  await runStatusLine(JSON.stringify({...payload,subagents:[{status:'completed'}]}),{provider:'agy',stateDir,env});
+  assert.equal(JSON.parse(await readFile(path,'utf8')).agentIdle,true);
+  assert.equal(await capture('agy',{...payload,conversation_id:'different'},{stateDir,env}),null);
+  assert.equal(await capture('agy',{...payload,transcript_path:'/profile/brain/other/.system_generated/logs/transcript.jsonl'},{stateDir,env}),null);
+});
+
+test('AGY statusLine preserves only a user-selected handoff permission for the same conversation', async t => {
+  const stateDir=await state(t),env={HC_TERMINAL_ID:'agy-terminal'};
+  const payload={product:'antigravity',session_id:'agy-one',cwd:'/project',transcript_path:'/profile/brain/agy-one/.system_generated/logs/transcript.jsonl',agent_state:'idle'};
+  const session=await capture('agy',payload,{stateDir,env});
+  const path=join(stateDir,'sessions','agy-agy-one.json');
+  await writeFile(path,JSON.stringify({...session,handoffPermissionMode:'bypass'}));
+  assert.equal((await capture('agy',payload,{stateDir,env})).handoffPermissionMode,'bypass');
+  const next={...payload,session_id:'agy-two',transcript_path:'/profile/brain/agy-two/.system_generated/logs/transcript.jsonl'};
+  assert.notEqual((await capture('agy',next,{stateDir,env})).handoffPermissionMode,'bypass');
 });
 
 test('malformed and authenticating empty AGY payloads create no account observation', async t => {

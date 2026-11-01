@@ -52,7 +52,7 @@ export function localSources(panes, spaces, agents) {
     if (!pane.terminal || !pane.cwd || !localTabs.has(pane.tab)) return [];
     const agent = agents.find((a) => a.address === pane.terminal);
     const app = agent?.app ?? pane.app ?? pane.program?.key ?? '';
-    const provider = /claude/.test(app) ? 'claude' : /codex/.test(app) ? 'codex' : null;
+    const provider = /claude/.test(app) ? 'claude' : /codex/.test(app) ? 'codex' : /^(agy|antigravity|antigravity-cli)$/.test(app) ? 'agy' : null;
     return provider ? [{ terminalId: pane.terminal, provider, cwd: pane.cwd, title: pane.title, space: localTabs.get(pane.tab), status: agent?.status ?? pane.status }] : [];
   });
 }

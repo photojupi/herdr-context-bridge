@@ -46,13 +46,13 @@ const find = (node, id) => node?.attributes?.id?.[0] === id ? node : (node?.cont
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 let instance = 0;
 
-async function loadUi({ properties = {}, exec, sharedValues = new Map(), source } = {}) {
+async function loadUi({ properties = {}, exec, sharedValues = new Map(), source, panes = [], spaces = [], agents = [] } = {}) {
   const calls = [], overlays = [], notifications = [], tasks = [], closed = [], timers = [], focus = [];
   const key = `__contextBridgeUi${instance++}`;
   const status = { config: { mode: 'ask', threshold: 10, autoSessions: [] }, bindings: [], quotas: {}, installed: { claude: true, codex: true }, jobs: [] };
   globalThis[key] = {
     View: class {}, div: element, h_flex: element, v_flex: element,
-    agents: () => [], panes: () => [], spaces: () => [], appHome: () => '/mock-app', props: () => properties,
+    agents: () => agents, panes: () => panes, spaces: () => spaces, appHome: () => '/mock-app', props: () => properties,
     theme: () => ({}), shared: (name) => sharedValues.get(name), setShared: (name, value) => sharedValues.set(name, value), notify: (value) => notifications.push(value),
     openOverlay: (value) => overlays.push(value), closeOverlay: (id) => closed.push(id), nextCommand: () => new Promise(() => {}),
     exec: async (node, args) => {
@@ -188,19 +188,22 @@ test('AGY compact weekly label follows all four display languages', async () => 
   }
 });
 
-test('AGY low quota alerts remain usage-only in all locales even with automatic bindings', async () => {
+test('AGY low quota alerts open manual review unless an automatic handoff started', async () => {
   for (const locale of ['en', 'ko', 'ja', 'zh-CN']) {
     const ui = await loadUi({ properties: { role: 'summary', locale } });
     await settle();
     ui.view.data.quotas = { agy: { provider: 'agy', observedAt: Date.now(), windows: [{ id: 'raw-bucket', remainingPercent: 5, resetsAt: Date.now() + 300_000 }] } };
-    ui.view.data.bindings = [{ provider: 'agy', decision: { action: 'auto' } }];
     ui.view.alertLowQuota();
     assert.equal(ui.notifications.length, 1);
     assert.match(ui.notifications[0].title, /AGY/);
     assert.match(ui.notifications[0].body, /raw-bucket.*5%/);
-    assert.equal(ui.notifications[0].action, undefined);
-    assert.doesNotMatch(ui.notifications[0].body, /handoff|인계|引き継|交接/i);
-    assert.equal(ui.overlays.length, 0);
+    assert.equal(ui.notifications[0].action.name, 'context-bridge.review');
+    assert.equal(ui.overlays[0].props.provider, 'agy');
+    ui.view.data.bindings = [{ provider: 'agy', decision: { action: 'auto' } }];
+    ui.view.data.quotas.agy.windows[0].id = 'another-bucket';
+    ui.view.alertLowQuota();
+    assert.equal(ui.notifications.length, 2);
+    assert.equal(ui.overlays.length, 1);
   }
 });
 
@@ -218,8 +221,8 @@ test('simultaneous Claude and AGY warnings both reach the user without duplicate
   assert.equal(ui.notifications.length, 2);
   assert.match(ui.notifications[0].title, /Claude/);
   assert.match(ui.notifications[1].title, /AGY/);
-  assert.equal(ui.notifications[1].action, undefined);
-  assert.equal(ui.overlays.length, 1);
+  assert.equal(ui.notifications[1].action.name, 'context-bridge.review');
+  assert.equal(ui.overlays.length, 2);
 });
 
 test('collapsed summary keeps the periodic refresh, job polling and low-quota alert owner', async () => {
@@ -325,5 +328,140 @@ test('all four locales render session review and job states without changing use
     assert.match(text, /\/사용자\/原文/);
     assert.match(text, /외부 오류 原文/);
     assert.doesNotMatch(text, /undefined|\{\w+\}/);
+  }
+});
+
+test('review submits the selected destination for all six provider directions', async () => {
+  for (const [provider, target] of [['claude', 'codex'], ['claude', 'agy'], ['codex', 'claude'], ['codex', 'agy'], ['agy', 'claude'], ['agy', 'codex']]) {
+    let request;
+    const ui = await loadUi({ properties: { role: 'review', locale: 'en' },
+      panes: [{ terminal: 't1', tab: 'tab1', cwd: '/repo', program: { key: provider } }],
+      spaces: [{ id: 'space1', machine: null, tabs: [{ id: 'tab1' }] }],
+      exec: (command, status, { args }) => {
+        if (command !== 'handoff') return status;
+        request = JSON.parse(args[2]);
+        return { jobId: 'new-job' };
+      },
+    });
+    await settle();
+    ui.view.data.installed.agy = true;
+    ui.view.data.bindings = [{ provider, id: 'session', cwd: '/repo', terminalId: 't1' }];
+    ui.view.selected = `${provider}:session`;
+    let root = ui.view.render(ui.cx);
+    assert.equal(find(root, `target-${provider}`), undefined);
+    const choice = find(root, `target-${target}`);
+    assert.ok(choice, `${provider} → ${target}`);
+    choice.attributes.on_click[0]({}, ui.cx);
+    root = ui.view.render(ui.cx);
+    assert.match(visible(find(root, `target-${target}`)), /^✓ /);
+    find(root, 'handoff').attributes.on_click[0]({}, ui.cx);
+    await settle();
+    assert.deepEqual(request, { sourceKey: `${provider}:session`, target, automatic: false, space: 'space1' });
+  }
+});
+
+test('automatic registration saves the selected target and removing a source clears its route', async () => {
+  const updates = [];
+  const ui = await loadUi({ properties: { role: 'details', locale: 'en' }, exec: (command, status, { args }) => {
+    if (command !== 'config') return status;
+    const update = JSON.parse(args[2]);
+    updates.push(update);
+    return update;
+  } });
+  await settle();
+  ui.view.data.installed.agy = true;
+  ui.view.data.bindings = [{ provider: 'claude', id: 'source' }, { provider: 'agy', id: 'second' }];
+  ui.view.selected = 'claude:source';
+  let root = ui.view.render(ui.cx);
+  assert.ok(find(root, 'target-agy'));
+  find(root, 'target-agy').attributes.on_click[0]({}, ui.cx);
+  find(ui.view.render(ui.cx), 'mode-auto').attributes.on_click[0]({}, ui.cx);
+  await settle();
+  assert.deepEqual(updates.at(-1).autoSessions, ['claude:source']);
+  assert.deepEqual(updates.at(-1).autoTargets, { 'claude:source': 'agy' });
+  assert.match(visible(ui.view.render(ui.cx)), /claude:source → AGY/);
+  ui.view.selected = 'agy:second';
+  root = ui.view.render(ui.cx);
+  assert.equal(find(root, 'target-agy'), undefined);
+  find(root, 'target-codex').attributes.on_click[0]({}, ui.cx);
+  find(ui.view.render(ui.cx), 'mode-auto').attributes.on_click[0]({}, ui.cx);
+  await settle();
+  assert.deepEqual(updates.at(-1).autoTargets, { 'claude:source': 'agy', 'agy:second': 'codex' });
+  find(ui.view.render(ui.cx), 'disarm-claude:source').attributes.on_click[0]({}, ui.cx);
+  await settle();
+  assert.deepEqual(updates.at(-1).autoTargets, { 'agy:second': 'codex' });
+  find(ui.view.render(ui.cx), 'mode-ask').attributes.on_click[0]({}, ui.cx);
+  await settle();
+  assert.deepEqual(updates.at(-1).autoSessions, []);
+  assert.deepEqual(updates.at(-1).autoTargets, {});
+});
+
+test('target selection restores a registered route without leaking another source destination', async () => {
+  const sharedValues = new Map([['context-bridge.targets', { 'claude:source': 'agy', 'agy:source': 'agy' }]]);
+  const ui = await loadUi({ properties: { role: 'review', locale: 'ko' }, sharedValues });
+  await settle();
+  ui.view.data.installed.agy = true;
+  ui.view.data.config.autoTargets = { 'codex:source': 'agy' };
+  ui.view.data.bindings = ['claude', 'codex', 'agy'].map((provider) => ({ provider, id: 'source' }));
+  for (const provider of ['claude', 'codex']) {
+    ui.view.selected = `${provider}:source`;
+    const root = ui.view.render(ui.cx);
+    assert.ok(find(root, 'target-agy'));
+    assert.match(visible(find(root, 'target-agy')), /^✓ /);
+  }
+  ui.view.selected = 'agy:source';
+  const root = ui.view.render(ui.cx);
+  assert.equal(find(root, 'target-agy'), undefined);
+  assert.doesNotMatch(visible(find(root, 'target-claude')), /^✓ /);
+  assert.doesNotMatch(visible(find(root, 'target-codex')), /^✓ /);
+});
+
+test('AGY handoff permission selection rebinds only the selected session and renders the saved setting', async () => {
+  for (const role of ['review', 'details']) {
+    const requests = [], sharedValues = new Map();
+    const binding = { provider: 'agy', id: 'source', terminalId: 't1', cwd: '/repo', autoOrigin: true };
+    const ui = await loadUi({ properties: { role, locale: 'en', sourceKey: 'agy:source' }, sharedValues,
+      exec: (command, status, { args }) => {
+        if (command !== 'bind') return status;
+        const request = JSON.parse(args[2]);
+        requests.push(request);
+        return { binding: { ...binding, handoffPermissionMode: request.handoffPermissionMode } };
+      },
+    });
+    await settle();
+    ui.view.data.bindings = [binding, { provider: 'claude', id: 'other' }];
+    let root = ui.view.render(ui.cx);
+    const defaultChoice = find(root, 'handoff-permission-default');
+    assert.ok(defaultChoice);
+    assert.match(visible(defaultChoice), /^✓ /);
+    assert.equal(requests.length, 0);
+    find(root, 'handoff-permission-bypass').attributes.on_click[0]({}, ui.cx);
+    await settle();
+    assert.deepEqual(requests[0], { terminalId: 't1', provider: 'agy', id: 'source', cwd: '/repo', handoffPermissionMode: 'bypass' });
+    assert.equal(sharedValues.get('context-bridge.binding').handoffPermissionMode, 'bypass');
+    assert.equal(ui.view.data.bindings.find(({ provider }) => provider === 'agy').autoOrigin, true);
+    root = ui.view.render(ui.cx);
+    assert.match(visible(find(root, 'handoff-permission-bypass')), /^✓ /);
+    find(root, 'handoff-permission-default').attributes.on_click[0]({}, ui.cx);
+    await settle();
+    assert.equal(requests[1].handoffPermissionMode, 'default');
+    assert.match(visible(find(ui.view.render(ui.cx), 'handoff-permission-default')), /^✓ /);
+    ui.view.selected = 'claude:other';
+    root = ui.view.render(ui.cx);
+    assert.equal(find(root, 'handoff-permission-default'), undefined);
+    assert.equal(find(root, 'handoff-permission-bypass'), undefined);
+  }
+});
+
+test('saved AGY handoff permissions and their scope explanation render in every locale', async () => {
+  for (const locale of ['en', 'ko', 'ja', 'zh-CN']) {
+    const ui = await loadUi({ properties: { role: 'review', locale, sourceKey: 'agy:source' } });
+    await settle();
+    ui.view.data.bindings = [{ provider: 'agy', id: 'source', terminalId: 't1', cwd: '/repo', handoffPermissionMode: 'bypass' }];
+    const root = ui.view.render(ui.cx);
+    assert.ok(find(root, 'handoff-permission-bypass'));
+    assert.match(visible(find(root, 'handoff-permission-bypass')), /^✓ /);
+    assert.ok(visible(root).includes(i18n.translate(locale, 'agyPermissionHint')));
+    assert.doesNotMatch(visible(root), /undefined|\{\w+\}|agyPermissionHint/);
   }
 });
