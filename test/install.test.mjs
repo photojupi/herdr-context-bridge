@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,readFile,access} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,access,unlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {execFileSync} from 'node:child_process';
@@ -45,7 +45,7 @@ test('install shares the existing bottom status height without changing main or 
   assert.deepEqual(status.size,{weight:1});
   assert.equal(status.min,0);
   assert.equal(summary.id,'context-bridge-summary');
-  assert.deepEqual(summary.size,{px:460});
+  assert.deepEqual(summary.size,{px:640});
   assert.ok(summary.min<=280);
   assert.deepEqual(summary.content,{mod:'context-bridge',props:{role:'summary',node:process.execPath,helper:join(o.appHome,'mods/context-bridge/helper/cli.mjs')}});
   assert.equal(nodes.some(node=>node.id==='context-bridge-panel'),false);
@@ -91,6 +91,17 @@ test('dry run does not change user files',async()=>{
   assert.ok(plan.files.length>3);
   assert.equal(await readFile(join(o.home,'.claude/settings.json'),'utf8'),before);
   await assert.rejects(access(join(o.appHome,'mods/context-bridge/main.js')));
+});
+
+test('AGY options without a command keep the built-in status line when adding a wrapper',async()=>{
+  const o=await fixture(),path=join(o.home,'.gemini/antigravity-cli/settings.json');
+  await mkdir(join(o.home,'.gemini/antigravity-cli'),{recursive:true});
+  const original={statusLine:{padding:2},other:true};
+  await writeFile(path,JSON.stringify(original));
+  await install(o);
+  assert.equal(JSON.parse(await readFile(path,'utf8')).statusLine.stack_with_default,true);
+  await uninstall(o);
+  assert.deepEqual(JSON.parse(await readFile(path,'utf8')),original);
 });
 test('installed localization modules load and locale inspection leaves state untouched',async()=>{
   const o=await fixture();
@@ -187,4 +198,88 @@ test('reinstall respects a removed statusLine instead of reviving the initial co
   assert.equal(JSON.parse(await readFile(join(o.stateDir,'install.json'),'utf8')).originalStatusLine,null);
   await uninstall(o);
   assert.equal(Object.hasOwn(JSON.parse(await readFile(path,'utf8')),'statusLine'),false);
+});
+
+test('AGY install wraps the official statusLine while preserving disabled options and restores the latest command',async()=>{
+  const o=await fixture(),path=join(o.home,'.gemini/antigravity-cli/settings.json');
+  await mkdir(join(o.home,'.gemini/antigravity-cli'),{recursive:true});
+  const original={customOption:'kept',statusLine:{type:'command',command:'printf agy-original',padding:2,enabled:false,stack_with_default:false}};
+  await writeFile(path,JSON.stringify(original));
+  await install(o);
+  let settings=JSON.parse(await readFile(path,'utf8'));
+  assert.equal(settings.statusLine.enabled,false);
+  assert.equal(settings.statusLine.stack_with_default,false);
+  assert.equal(settings.statusLine.padding,2);
+  assert.match(settings.statusLine.command,/statusline agy$/);
+  await install(o);
+  let saved=JSON.parse(await readFile(join(o.stateDir,'install.json'),'utf8'));
+  assert.deepEqual(saved.originalAgyStatusLine,original.statusLine);
+  const output=execFileSync(process.execPath,[join(o.appHome,'mods/context-bridge/helper/cli.mjs'),'statusline','agy'],{
+    input:JSON.stringify({quota:{'gemini-weekly':{remaining_fraction:0.5}}}),encoding:'utf8',env:{HOME:o.home,PATH:'',HERDR_BRIDGE_STATE_DIR:o.stateDir},
+  });
+  assert.equal(output,'agy-original');
+  assert.equal(JSON.parse(await readFile(join(o.stateDir,'quota-agy.json'),'utf8')).accountObserved,true);
+  settings=JSON.parse(await readFile(path,'utf8'));
+  settings.statusLine={type:'command',command:'printf agy-replacement',padding:9,enabled:false};
+  settings.laterSetting=true;
+  await writeFile(path,JSON.stringify(settings));
+  await install(o);
+  saved=JSON.parse(await readFile(join(o.stateDir,'install.json'),'utf8'));
+  assert.deepEqual(saved.originalAgyStatusLine,settings.statusLine);
+  await uninstall(o);
+  assert.deepEqual(JSON.parse(await readFile(path,'utf8')),settings);
+});
+
+test('new AGY statusLine stacks with the default UI and uninstall removes only managed configuration',async()=>{
+  const o=await fixture(),path=join(o.home,'.gemini/antigravity-cli/settings.json');
+  await install(o);
+  let settings=JSON.parse(await readFile(path,'utf8'));
+  assert.equal(settings.statusLine.stack_with_default,true);
+  assert.match(settings.statusLine.command,/statusline agy$/);
+  await uninstall(o);
+  await assert.rejects(access(path),{code:'ENOENT'});
+  await install(o);
+  settings=JSON.parse(await readFile(path,'utf8'));
+  settings.statusLine.padding=5;
+  settings.statusLine.enabled=false;
+  settings.userSetting=true;
+  await writeFile(path,JSON.stringify(settings));
+  await install(o);
+  await uninstall(o);
+  assert.deepEqual(JSON.parse(await readFile(path,'utf8')),{statusLine:{padding:5,enabled:false},userSetting:true});
+});
+
+test('upgrading a pre-AGY installation keeps the built-in AGY statusLine visible',async()=>{
+  const o=await fixture(),path=join(o.home,'.gemini/antigravity-cli/settings.json');
+  await install(o);
+  const manifestPath=join(o.stateDir,'install.json');
+  const oldManifest=JSON.parse(await readFile(manifestPath,'utf8'));
+  for(const key of ['originalAgyStatusLine','agyDefaultStack','agyPath','agyStatusCommand']) delete oldManifest[key];
+  delete oldManifest.files[path];
+  await writeFile(manifestPath,JSON.stringify(oldManifest));
+  await unlink(path);
+  await install(o);
+  const settings=JSON.parse(await readFile(path,'utf8'));
+  assert.equal(settings.statusLine.stack_with_default,true);
+  const manifest=JSON.parse(await readFile(manifestPath,'utf8'));
+  assert.equal(manifest.originalAgyStatusLine,null);
+  await uninstall(o);
+  await assert.rejects(access(path),{code:'ENOENT'});
+});
+
+test('AGY uninstall preserves removed statusLine options and a user replacement command',async()=>{
+  const o=await fixture(),path=join(o.home,'.gemini/antigravity-cli/settings.json');
+  await mkdir(join(o.home,'.gemini/antigravity-cli'),{recursive:true});
+  await writeFile(path,JSON.stringify({statusLine:{type:'command',command:'printf initial',padding:3}}));
+  await install(o);
+  const settings=JSON.parse(await readFile(path,'utf8'));
+  delete settings.statusLine.padding;
+  settings.statusLine.enabled=false;
+  await writeFile(path,JSON.stringify(settings));
+  await uninstall(o);
+  assert.deepEqual(JSON.parse(await readFile(path,'utf8')),{statusLine:{type:'command',command:'printf initial',enabled:false}});
+  await install(o);
+  await writeFile(path,JSON.stringify({statusLine:{type:'command',command:'printf user-command',padding:7}}));
+  await uninstall(o);
+  assert.deepEqual(JSON.parse(await readFile(path,'utf8')),{statusLine:{type:'command',command:'printf user-command',padding:7}});
 });

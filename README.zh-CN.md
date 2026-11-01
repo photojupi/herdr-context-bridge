@@ -6,6 +6,12 @@
 
 仅使用 Node.js 内置模块，无需单独的 Web 服务器或安装额外软件包。
 
+现已支持 AGY（Antigravity CLI）的用量显示和提醒；会话交接仍适用于 Claude/Codex 之间。仅显示通过官方接口观察到账户使用记录的提供方：Codex 成功查询用量，或 Claude/AGY 状态栏传入有效额度数据。安装、配置文件存在或 `authenticating` 事件本身不算认证记录。已有的有效缓存也会被识别；之后查询失败时仍显示该提供方，并标记不可用或过期。这是观察历史，并非实时登录状态检查。
+
+已有安装请重新运行 `npm run install:mod`。安装程序在 AGY 的 `~/.gemini/antigravity-cli/settings.json` 中添加 wrapper，保留原命令的 stdin、stdout、stderr、退出码以及用户选项。全新配置会显示在默认状态栏下方，明确禁用的状态栏不会被启用。登录后的会话正常传入数据后即可显示，无需发送测试提示词。**刷新**只会重新读取 Claude/AGY 已收集的数据。
+
+使用 AGY 官方 [`statusLine` 的 `quota`](https://antigravity.google/docs/cli/statusline/)。底部摘要仅将用户指定的代表项 Gemini4 Argon 的 `gemini-argon-wtu-weekly` 显示为 **AGY 每周 XX%**，提示中包含模型名称、原始 bucket ID 和重置时间。若该 bucket 不存在，则显示 **AGY 每周 —**，不会改用其他每周额度。这是用户选择的代表项，并非自动判断价格的功能。详情和提醒仍保留所有 bucket 的原始名称、剩余比例和重置时间。不推测周期、不合并额度，也不会将只有 `remaining_amount` 的数据换算为百分比。禁用的 bucket 显示为不可用，AGY 提醒不会打开交接确认。
+
 ![使用示例数据展示额度摘要与交接详情的示意图](docs/images/context-bridge-preview.svg)
 
 *这是使用示例数据绘制的示意图，并非实际截图。*

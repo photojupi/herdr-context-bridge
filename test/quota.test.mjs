@@ -10,6 +10,7 @@ test('explicit ordinary usage denial cannot be inferred available from percentag
   assert.equal(result.ordinaryUsageAllowed,false);
 });
 import { normalizeClaudeQuota, normalizeCodexQuota, readCodexQuota } from '../src/quota.mjs';
+import * as quotaModule from '../src/quota.mjs';
 
 const now = 1800000000000;
 
@@ -72,9 +73,57 @@ test('readCodexQuota handles official RPC and returns sanitized unknown on error
   const args = [new URL('./fixtures/quota/fake-codex.mjs', import.meta.url).pathname];
   const quota = await readCodexQuota({ binary: process.execPath, args, env: { ...process.env, FAKE_CODEX_MODE: 'quota' }, timeoutMs: 1000 });
   assert.equal(quota.provider, 'codex');
+  assert.equal(quota.accountObserved, true);
   assert.equal(quota.windows[0].remainingPercent, 25);
   const failed = await readCodexQuota({ binary: process.execPath, args, env: { ...process.env, FAKE_CODEX_MODE: 'error' }, timeoutMs: 1000 });
   assert.deepEqual(failed.windows, []);
   assert.ok(failed.error);
+  assert.notEqual(failed.accountObserved, true);
   assert.doesNotMatch(JSON.stringify(failed), /SECRET/);
+});
+
+test('AGY official quota fractions preserve bucket names and prefer ISO reset timestamps', () => {
+  assert.equal(typeof quotaModule.normalizeAgyQuota, 'function');
+  const quota=quotaModule.normalizeAgyQuota({quota:{
+    'gemini-weekly':{remaining_fraction:0.9378,reset_time:'2027-01-15T08:00:00Z',reset_in_seconds:20},
+    'other-model':{remaining_fraction:0,reset_in_seconds:0},
+    full:{remaining_fraction:1,reset_in_seconds:60},
+  }},now);
+  assert.equal(quota.provider,'agy');
+  assert.equal(quota.accountObserved,true);
+  assert.deepEqual(quota.windows.map(w=>[w.id,w.label,w.remainingPercent,w.usedPercent,w.resetsAt]),[
+    ['gemini-weekly','gemini-weekly',93.78,6.22,1800000000000],
+    ['other-model','other-model',0,100,now],
+    ['full','full',100,0,now+60000],
+  ]);
+});
+
+test('AGY disabled invalid and amount-only buckets never fabricate percentage availability', () => {
+  assert.equal(typeof quotaModule.normalizeAgyQuota, 'function');
+  const quota=quotaModule.normalizeAgyQuota({email:'PRIVATE@example.com',quota:{
+    disabled:{remaining_fraction:1,disabled:true},amount:{remaining_amount:42},
+    negative:{remaining_fraction:-0.1,reset_in_seconds:-1},overflow:{remaining_fraction:1.01},
+    invalidReset:{remaining_fraction:0.5,reset_time:'invalid',reset_in_seconds:60},
+    missing:null,
+  }},now);
+  assert.equal(quota.accountObserved,true);
+  assert.deepEqual(quota.windows.map(w=>[w.id,w.remainingPercent,w.resetsAt]),[
+    ['disabled',null,null],['amount',null,null],['negative',null,null],['overflow',null,null],['invalidReset',50,null],
+  ]);
+  assert.equal(quota.windows[0].disabled,true);
+  assert.equal(quota.windows[1].remainingAmount,42);
+  assert.equal(quota.error,undefined);
+  assert.doesNotMatch(JSON.stringify(quota),/PRIVATE|email/);
+  for(const input of [{},{agent_state:'authenticating',quota:{}},{quota:{bad:{remaining_fraction:'1'}}}])
+    assert.notEqual(quotaModule.normalizeAgyQuota(input,now).accountObserved,true);
+  assert.notEqual(normalizeClaudeQuota({rate_limits:{bad:{used_percentage:101}}},now).accountObserved,true);
+  assert.equal(normalizeClaudeQuota({rate_limits:{five_hour:{used_percentage:0}}},now).accountObserved,true);
+});
+
+test('account observation recognizes explicit history and legacy valid percentage caches only', () => {
+  assert.equal(typeof quotaModule.hasAccountObservation,'function');
+  for(const quota of [{accountObserved:true,windows:[]},{windows:[{remainingPercent:0}]},{windows:[{remainingPercent:100}]}])
+    assert.equal(quotaModule.hasAccountObservation(quota),true);
+  for(const quota of [null,{windows:[]},{error:'failed'},{windows:[{remainingPercent:null}]},{windows:[{remainingPercent:101}]}])
+    assert.equal(quotaModule.hasAccountObservation(quota),false);
 });

@@ -22,7 +22,7 @@ try {
     case 'worker':await runJob(args[0]);break;
     case 'capture':await (await import('./capture.mjs')).capture(args[0],JSON.parse(await stdin()),{stateDir,env:process.env});break;
     case 'statusline':{
-      const output=await (await import('./capture.mjs')).runStatusLine(await stdin(),{stateDir,env:process.env});
+      const output=await (await import('./capture.mjs')).runStatusLine(await stdin(),{provider:args[0]||'claude',stateDir,env:process.env});
       if(output.stdout)process.stdout.write(output.stdout);if(output.stderr)process.stderr.write(output.stderr);process.exitCode=output.code;break;
     }
     default:result={name:'herdr-context-bridge',commands:['locale','status','config','sessions','bind','handoff','job'],version:'0.1.0'};

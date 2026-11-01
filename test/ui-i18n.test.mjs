@@ -78,10 +78,8 @@ test('summary click opens full details with the same helper, locale and source w
   await settle();
   const root = ui.view.render(ui.cx);
   assert.equal(ui.focus.length, 0);
-  for (const id of ['summary-claude-fiveHour', 'summary-claude-weekly', 'summary-codex-fiveHour', 'summary-codex-weekly']) assert.ok(find(root, id), id);
-  assert.match(visible(root), /Claude/);
-  assert.match(visible(root), /Codex/);
-  assert.match(visible(root), /—/);
+  assert.doesNotMatch(visible(root), /Claude|Codex|AGY/);
+  assert.match(visible(root), /로그인 후 사용량/);
   const trigger = find(root, 'open-details');
   assert.ok(trigger);
   trigger.attributes.on_click[0]();
@@ -115,6 +113,7 @@ test('directly opened details reuse installed summary paths when app PATH has no
 test('details keeps quota cards, settings, jobs and existing review while close and Escape dismiss it', async () => {
   const ui = await loadUi({ properties: { overlay: 'details-id', locale: 'en' } });
   await settle();
+  ui.view.data.quotas = { claude: { provider: 'claude', windows: [] }, codex: { provider: 'codex', windows: [] } };
   ui.view.jobs = [{ status: 'preparing' }];
   const root = ui.view.render(ui.cx);
   const text = visible(root);
@@ -126,6 +125,89 @@ test('details keeps quota cards, settings, jobs and existing review while close 
   find(root, 'close-details').attributes.on_click[0]();
   root.attributes.on_key_down[0]({ key: 'escape' }, ui.cx);
   assert.deepEqual(ui.closed, ['details-id', 'details-id']);
+});
+
+test('empty usage is localized and hides unobserved provider cards in summary and details', async () => {
+  for (const [locale, hint] of [['en', /Waiting for usage after sign-in/], ['ko', /로그인 후 사용량/], ['ja', /ログイン後の使用量/], ['zh-CN', /登录后的用量/]]) {
+    for (const role of ['summary', 'details']) {
+      const ui = await loadUi({ properties: { role, locale } });
+      await settle();
+      const text = visible(ui.view.render(ui.cx));
+      assert.match(text, hint);
+      assert.doesNotMatch(text, /Claude Code|Codex|AGY/);
+    }
+  }
+});
+
+test('AGY summary shows Argon weekly only while details retain every bucket', async () => {
+  const ui = await loadUi({ properties: { role: 'summary', locale: 'en' } });
+  await settle();
+  ui.view.data.quotas = { agy: { provider: 'agy', observedAt: Date.now(), windows: [
+    { id: 'gemini-argon-wtu-weekly', label: 'gemini-argon-wtu-weekly', remainingPercent: 25, resetsAt: Date.now() + 300_000 },
+    { id: '3p-weekly', label: '3p-weekly', remainingPercent: 80, resetsAt: null },
+    { id: 'disabled', label: 'disabled', remainingPercent: 1, resetsAt: Date.now() + 300_000, disabled: true },
+  ] } };
+  const summary = ui.view.render(ui.cx);
+  assert.match(visible(summary), /AGY/);
+  assert.doesNotMatch(visible(summary), /Claude\n|Codex|5h|3p-weekly|disabled|argon|80%|1%/);
+  assert.equal(visible(find(summary, 'summary-agy-weekly')), 'Week 25%');
+  assert.match(find(summary, 'summary-agy-weekly').attributes.tooltip[0], /Gemini 4 Argon.*gemini-argon-wtu-weekly/);
+  assert.match(find(summary, 'summary-agy-weekly').attributes.tooltip[0], /Resets/);
+  ui.view.role = 'details';
+  const details = visible(ui.view.render(ui.cx));
+  assert.match(details, /AGY \(Antigravity\)/);
+  assert.match(details, /gemini-argon-wtu-weekly/);
+  assert.match(details, /3p-weekly/);
+  assert.match(details, /80% left/);
+  assert.match(details, /disabled/);
+  assert.match(details, /25% left/);
+  assert.doesNotMatch(details, /1% left/);
+  ui.view.data.quotas.agy = { provider: 'agy', windows: [], error: 'offline' };
+  ui.view.role = 'summary';
+  assert.match(visible(ui.view.render(ui.cx)), /AGY\nWeek —/);
+});
+
+test('AGY compact weekly label follows all four display languages', async () => {
+  for (const [locale, label] of [['en', 'Week'], ['ko', '주간'], ['ja', '週間'], ['zh-CN', '每周']]) {
+    const ui = await loadUi({ properties: { role: 'summary', locale } });
+    await settle();
+    ui.view.data.quotas = { agy: { provider: 'agy', observedAt: Date.now(), windows: [{ id: 'gemini-argon-wtu-weekly', remainingPercent: 42, resetsAt: Date.now() + 300_000 }] } };
+    assert.equal(visible(find(ui.view.render(ui.cx), 'summary-agy-weekly')), `${label} 42%`);
+  }
+});
+
+test('AGY low quota alerts remain usage-only in all locales even with automatic bindings', async () => {
+  for (const locale of ['en', 'ko', 'ja', 'zh-CN']) {
+    const ui = await loadUi({ properties: { role: 'summary', locale } });
+    await settle();
+    ui.view.data.quotas = { agy: { provider: 'agy', observedAt: Date.now(), windows: [{ id: 'raw-bucket', remainingPercent: 5, resetsAt: Date.now() + 300_000 }] } };
+    ui.view.data.bindings = [{ provider: 'agy', decision: { action: 'auto' } }];
+    ui.view.alertLowQuota();
+    assert.equal(ui.notifications.length, 1);
+    assert.match(ui.notifications[0].title, /AGY/);
+    assert.match(ui.notifications[0].body, /raw-bucket.*5%/);
+    assert.equal(ui.notifications[0].action, undefined);
+    assert.doesNotMatch(ui.notifications[0].body, /handoff|인계|引き継|交接/i);
+    assert.equal(ui.overlays.length, 0);
+  }
+});
+
+test('simultaneous Claude and AGY warnings both reach the user without duplicate notifications', async () => {
+  const ui = await loadUi({ properties: { role: 'summary', locale: 'en' } });
+  await settle();
+  const observedAt = Date.now(), resetsAt = observedAt + 300_000;
+  ui.view.data.quotas = {
+    claude: { provider: 'claude', observedAt, windows: [{ id: 'five_hour', remainingPercent: 5, resetsAt }] },
+    agy: { provider: 'agy', observedAt, windows: [{ id: 'raw-bucket', remainingPercent: 5, resetsAt }] },
+  };
+  ui.view.alertLowQuota();
+  ui.view.alertLowQuota();
+  ui.view.alertLowQuota();
+  assert.equal(ui.notifications.length, 2);
+  assert.match(ui.notifications[0].title, /Claude/);
+  assert.match(ui.notifications[1].title, /AGY/);
+  assert.equal(ui.notifications[1].action, undefined);
+  assert.equal(ui.overlays.length, 1);
 });
 
 test('collapsed summary keeps the periodic refresh, job polling and low-quota alert owner', async () => {

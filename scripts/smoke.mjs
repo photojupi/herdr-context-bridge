@@ -85,6 +85,8 @@ if(JSON.stringify(args)!==JSON.stringify(['ls','--json']))throw Error('Source in
 process.stdout.write(fs.readFileSync(process.env.SMOKE_TERMINALS));`);
   await executable('claude', `${common}
 log({binary:'claude',args});throw Error('The source CLI must never be invoked');`);
+  await executable('agy', `${common}
+log({binary:'agy',args});throw Error('AGY must not be launched to check authentication or usage');`);
   await executable('codex', `${common}
 if(args[0]==='app-server'){
   require('node:readline').createInterface({input:process.stdin}).on('line',line=>{
@@ -150,7 +152,16 @@ process.stdout.write(JSON.stringify({terminal:'target-'+process.pid,tab:'tab-'+p
   const status = await helper('status');
   assert.equal(status.code, 0);
   assert.equal(status.value.config.mode, 'ask');
-  assert.deepEqual(status.value.installed, { claude: true, codex: true });
+  assert.deepEqual(status.value.installed, { claude: true, codex: true, agy: true });
+  assert.deepEqual(Object.keys(status.value.quotas), ['codex']);
+  await putJson(join(stateDir, 'install.json'), { originalAgyStatusLine: { command: 'cat >/dev/null' } });
+  await helper('statusline', ['agy'], JSON.stringify({ product: 'antigravity', agent_state: 'authenticating', quota: {} }));
+  assert.equal((await helper('status')).value.quotas.agy, undefined);
+  const agyInput = { product: 'antigravity', agent_state: 'idle', quota: { 'custom-weekly': { remaining_fraction: 0.42, reset_in_seconds: 3600 } }, email: 'private@example.invalid' };
+  assert.equal((await helper('statusline', ['agy'], JSON.stringify(agyInput))).code, 0);
+  const agyStatus = (await helper('status')).value;
+  assert.equal(agyStatus.quotas.agy.windows[0].remainingPercent, 42);
+  assert.doesNotMatch(JSON.stringify(agyStatus.quotas.agy), /private@example|email/);
   const rejected = await helper('handoff', [JSON.stringify({ sourceKey: 'claude:source-manual', target: 'codex', automatic: true })]);
   assert.equal(rejected.code, 1);
   assert.ok(rejected.value.error.startsWith(t('자동 인계 불가: {reason}', { reason: '' }, locale)));
@@ -196,9 +207,10 @@ process.stdout.write(JSON.stringify({terminal:'target-'+process.pid,tab:'tab-'+p
   }
   assert.equal((await calls()).filter(call => call.binary === 'herdr-app').length, 2);
   assert.equal((await calls()).filter(call => call.binary === 'claude').length, 0);
+  assert.equal((await calls()).filter(call => call.binary === 'agy').length, 0);
   assert.ok((await calls()).filter(call => call.binary === 'hc').every(call => JSON.stringify(call.args) === '["ls","--json"]'));
   assert.ok((await calls()).filter(call => call.binary === 'codex-api').every(call => ['initialize', 'initialized', 'account/rateLimits/read'].includes(call.method)));
-  process.stdout.write(JSON.stringify({ ok: true, scenarios: ['default-ask-rejects-auto', 'manual-detached-handoff', 'armed-auto-detached-handoff', 'raw-sha256-and-complete-chunks', 'argv-and-origin-boundaries', 'source-remains-untouched'], jobs: jobs.size }) + '\n');
+  process.stdout.write(JSON.stringify({ ok: true, scenarios: ['observed-accounts-only', 'agy-statusline-without-cli-launch', 'default-ask-rejects-auto', 'manual-detached-handoff', 'armed-auto-detached-handoff', 'raw-sha256-and-complete-chunks', 'argv-and-origin-boundaries', 'source-remains-untouched'], jobs: jobs.size }) + '\n');
 } finally {
   for (const child of children) child.kill('SIGKILL');
   // Only a worker ID returned by this run's own helper can be considered here.

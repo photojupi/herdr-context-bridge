@@ -6,6 +6,12 @@ Herdr で Claude Code と Codex のアカウント残量を確認し、上限が
 
 Node.js の組み込みモジュールのみを使用し、別の Web サーバーやパッケージのインストールは不要です。
 
+AGY（Antigravity CLI）の使用量表示と通知にも対応しています。会話の引き継ぎは Claude/Codex 間で利用できます。公式インターフェースでアカウントの使用を確認したプロバイダーだけを表示します。Codex は使用量取得の成功、Claude/AGY は有効なステータスラインの割当量データが基準です。インストール・設定ファイルの存在や `authenticating` だけでは表示しません。既存の有効なキャッシュも認め、以後の取得失敗時には表示を維持して取得不可・古い情報を示します。これは観測履歴であり、現在のログイン状態の検査ではありません。
+
+既存の環境では `npm run install:mod` で更新してください。AGY の `~/.gemini/antigravity-cli/settings.json` に wrapper を追加し、元のコマンドの stdin・stdout・stderr・終了コードとユーザー設定を保持します。新規設定は標準ステータスラインの下に表示し、明示的に無効化した設定は変更しません。ログイン済みセッションから通常のデータが届くと表示され、テスト用プロンプトは不要です。**更新**は Claude/AGY の収集済みデータを再読込します。
+
+AGY の公式 [`statusLine` の `quota`](https://antigravity.google/docs/cli/statusline/) を使用します。下部の要約には、ユーザーが代表項目に指定した Gemini4 Argon の `gemini-argon-wtu-weekly` だけを **AGY 週間 XX%** と表示し、ツールチップにモデル名・元の bucket ID・リセット時刻を示します。この bucket がなければ別の週間枠には切り替えず、**AGY 週間 —** と表示します。価格の自動判定ではなく、ユーザーが選んだ代表項目です。詳細と通知では全 bucket の元の名前と残り割合・リセットを維持します。期間の推測や bucket の合算はせず、`remaining_amount` だけの場合は割合を表示しません。無効な bucket は取得不可とし、AGY の通知から引き継ぎ確認を開くことはありません。
+
 ![サンプルデータで残量の要約と引き継ぎの詳細を示したイラスト](docs/images/context-bridge-preview.svg)
 
 *サンプルデータを使ったイラストです。実際のスクリーンショットではありません。*

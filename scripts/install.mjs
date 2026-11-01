@@ -60,22 +60,26 @@ export async function install(options={}) {
   if(!previous && await maybe(join(modDir,'main.js'))) throw new Error(t('같은 이름의 mod가 이미 있습니다. 덮어쓰지 않았습니다.'));
   const helper=join(modDir,'helper/cli.mjs');
   const command=mode=>`${shellQuote(process.execPath)} ${shellQuote(helper)} ${mode}`;
-  const claudePath=join(home,'.claude/settings.json'),codexPath=join(home,'.codex/hooks.json');
-  const claude=await readJson(claudePath,{}),codex=await readJson(codexPath,{});
+  const claudePath=join(home,'.claude/settings.json'),codexPath=join(home,'.codex/hooks.json'),agyPath=join(home,'.gemini/antigravity-cli/settings.json');
+  const claude=await readJson(claudePath,{}),codex=await readJson(codexPath,{}),agy=await readJson(agyPath,{});
   const originalClaude=previous?.originalClaude ?? structuredClone(claude);
   const originalCodex=previous?.originalCodex ?? structuredClone(codex);
   const originalStatusLine=previous&&claude.statusLine?.command===previous.statusCommand?previous.originalStatusLine:(claude.statusLine??null);
-  const claudeCommand=command('capture claude'),codexCommand=command('capture codex'),statusCommand=command('statusline');
+  const agyWrapped=typeof previous?.agyStatusCommand==='string'&&agy.statusLine?.command===previous.agyStatusCommand;
+  const originalAgyStatusLine=agyWrapped?previous.originalAgyStatusLine:(agy.statusLine??null);
+  const agyDefaultStack=agyWrapped?previous.agyDefaultStack:!agy.statusLine?.command&&!Object.hasOwn(agy.statusLine||{},'stack_with_default');
+  const claudeCommand=command('capture claude'),codexCommand=command('capture codex'),statusCommand=command('statusline'),agyStatusCommand=command('statusline agy');
   let newClaude=addHooks(claude,'claude',claudeCommand);
   newClaude.statusLine={...(claude.statusLine||{}),type:'command',command:statusCommand};
   const newCodex=addHooks(codex,'codex',codexCommand);
+  const newAgy={...agy,statusLine:{...(agy.statusLine||{}),...(!agyWrapped&&agyDefaultStack?{stack_with_default:true}:{}),type:'command',command:agyStatusCommand}};
   const baseName=options.layoutName||previous?.baseLayout||'main';
   if(!/^[a-zA-Z0-9_-]+$/.test(baseName)) throw new Error(t('잘못된 레이아웃 이름입니다.'));
   const base=await readJson(join(appHome,'layouts',baseName+'.json'));
   if(!base) throw new Error(t('먼저 herdr-app을 한 번 실행해 주세요.'));
   const clone=structuredClone(base);
   clone.cloned_from={name:baseName,version:'0.1.10'};
-  const summary={id:'context-bridge-summary',type:'block',size:{px:460},min:0,max:460,content:{mod:'context-bridge',props:{role:'summary',node:process.execPath,helper}}};
+  const summary={id:'context-bridge-summary',type:'block',size:{px:640},min:0,max:640,content:{mod:'context-bridge',props:{role:'summary',node:process.execPath,helper}}};
   let layout=clone;
   if(!addSummary(clone,summary)) {
     const bottom={id:'context-bridge-status-row',type:'row',size:{px:28},resizable:false,children:[summary]};
@@ -91,6 +95,7 @@ export async function install(options={}) {
   writes.push({path:join(appHome,'layouts/context-bridge.json'),bytes:Buffer.from(JSON.stringify(layout,null,2)+'\n')});
   writes.push({path:claudePath,bytes:Buffer.from(JSON.stringify(newClaude,null,2)+'\n'),config:true});
   writes.push({path:codexPath,bytes:Buffer.from(JSON.stringify(newCodex,null,2)+'\n'),config:true});
+  writes.push({path:agyPath,bytes:Buffer.from(JSON.stringify(newAgy,null,2)+'\n'),config:true});
   const report={files:writes.map(w=>w.path),baseLayout:baseName,layout:'context-bridge',hookTrustRequired:true};
   if(options.dryRun) return report;
   const records=previous?.files||{};
@@ -99,7 +104,7 @@ export async function install(options={}) {
     if(!records[w.path]) {const before=await maybe(w.path);records[w.path]={before:before?.toString('base64')??null};}
     records[w.path].afterHash=digest(w.bytes);records[w.path].config=!!w.config;
   }
-  const manifest={version:1,installedAt:previous?.installedAt||Date.now(),updatedAt:Date.now(),appHome,baseLayout:baseName,originalStatusLine,originalClaude,originalCodex,claudePath,codexPath,claudeCommand,codexCommand,statusCommand,files:records};
+  const manifest={version:1,installedAt:previous?.installedAt||Date.now(),updatedAt:Date.now(),appHome,baseLayout:baseName,originalStatusLine,originalAgyStatusLine,agyDefaultStack,originalClaude,originalCodex,claudePath,codexPath,agyPath,claudeCommand,codexCommand,statusCommand,agyStatusCommand,files:records};
   await atomicJson(manifestPath,manifest);
   for(const w of writes) {
     await mkdir(dirname(w.path),{recursive:true,mode:0o700});
@@ -122,10 +127,26 @@ export async function uninstall(options={}) {
     if(!Object.keys(restoredClaude.statusLine).length) delete restoredClaude.statusLine;
   }
   const restoredCodex=removeHooks(await readJson(manifest.codexPath,{}),manifest.codexCommand,manifest.originalCodex);
+  let restoredAgy;
+  if(manifest.agyPath) {
+    restoredAgy=await readJson(manifest.agyPath,{});
+    if(restoredAgy.statusLine?.command===manifest.agyStatusCommand) {
+      for(const key of ['type','command']) {
+        if(Object.hasOwn(manifest.originalAgyStatusLine||{},key)) restoredAgy.statusLine[key]=manifest.originalAgyStatusLine[key];
+        else delete restoredAgy.statusLine[key];
+      }
+      if(manifest.agyDefaultStack&&restoredAgy.statusLine.stack_with_default===true) delete restoredAgy.statusLine.stack_with_default;
+      if(!Object.keys(restoredAgy.statusLine).length) delete restoredAgy.statusLine;
+    }
+  }
   if(!options.dryRun) {
     await atomicJson(manifest.claudePath,restoredClaude);
     if(Object.keys(restoredCodex).length || manifest.files[manifest.codexPath]?.before!==null) await atomicJson(manifest.codexPath,restoredCodex);
     else await unlink(manifest.codexPath).catch(()=>{});
+    if(restoredAgy) {
+      if(Object.keys(restoredAgy).length || manifest.files[manifest.agyPath]?.before!==null) await atomicJson(manifest.agyPath,restoredAgy);
+      else await unlink(manifest.agyPath).catch(()=>{});
+    }
   }
   for(const [path,record] of Object.entries(manifest.files)) {
     if(record.config) continue;

@@ -5,6 +5,10 @@ function percent(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100 ? value : null;
 }
 
+export function hasAccountObservation(quota) {
+  return quota?.accountObserved === true || (Array.isArray(quota?.windows) && quota.windows.some(window => percent(window?.remainingPercent) !== null));
+}
+
 function seconds(value) {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value * 1000 : null;
 }
@@ -57,7 +61,39 @@ export function normalizeClaudeQuota(payload, now = Date.now(), locale = getLoca
     windows.push({ id, label: labels[id] ? t(labels[id],{},locale) : id, ...(labels[id]?{labelKey:labels[id]}:{}), usedPercent,
       remainingPercent: usedPercent === null ? null : 100 - usedPercent, resetsAt: seconds(window.resets_at) });
   }
-  return result('claude', windows, now, locale);
+  const quota = result('claude', windows, now, locale);
+  if (windows.some(window => window.usedPercent !== null)) quota.accountObserved = true;
+  return quota;
+}
+
+export function normalizeAgyQuota(payload, now = Date.now(), locale = getLocale()) {
+  const windows = [];
+  let accountObserved = false;
+  const buckets = payload?.quota;
+  if (buckets && typeof buckets === 'object' && !Array.isArray(buckets)) {
+    for (const [id, bucket] of Object.entries(buckets)) {
+      if (!bucket || typeof bucket !== 'object' || Array.isArray(bucket)) continue;
+      const fraction = typeof bucket.remaining_fraction === 'number' && Number.isFinite(bucket.remaining_fraction) && bucket.remaining_fraction >= 0 && bucket.remaining_fraction <= 1 ? bucket.remaining_fraction : null;
+      const amount = typeof bucket.remaining_amount === 'number' && Number.isFinite(bucket.remaining_amount) && bucket.remaining_amount >= 0 ? bucket.remaining_amount : null;
+      if (fraction !== null || amount !== null) accountObserved = true;
+      let resetsAt = null;
+      let relativeReset = false;
+      if (Object.hasOwn(bucket, 'reset_time')) {
+        const parsed = typeof bucket.reset_time === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(bucket.reset_time) ? Date.parse(bucket.reset_time) : NaN;
+        if (Number.isFinite(parsed)) resetsAt = parsed;
+      } else if (typeof bucket.reset_in_seconds === 'number' && Number.isFinite(bucket.reset_in_seconds) && bucket.reset_in_seconds >= 0) {
+        const parsed = now + bucket.reset_in_seconds * 1000;
+        if (Number.isFinite(parsed)) { resetsAt = parsed; relativeReset = true; }
+      }
+      const remainingPercent = bucket.disabled === true || fraction === null ? null : Math.round(fraction * 10000) / 100;
+      windows.push({ id, label: id, usedPercent: remainingPercent === null ? null : Math.round((100 - remainingPercent) * 100) / 100,
+        remainingPercent, resetsAt, ...(relativeReset ? { relativeReset: true } : {}), ...(bucket.disabled === true ? { disabled: true } : {}), ...(amount === null ? {} : { remainingAmount: amount }) });
+    }
+  }
+  const quota = { provider: 'agy', observedAt: now, windows };
+  if (!windows.length) quota.error = t('사용량 정보가 아직 없습니다.', {}, locale);
+  if (accountObserved) quota.accountObserved = true;
+  return quota;
 }
 
 function codexLabel({title,minutes,period},locale) {
@@ -81,7 +117,7 @@ export async function readCodexQuota(options = {}) {
   try {
     const timeoutMs = Math.min(Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : 15000, 18000);
     const payload = await withCodex(client => client.request('account/rateLimits/read'), { ...options, timeoutMs });
-    return normalizeCodexQuota(payload);
+    return { ...normalizeCodexQuota(payload), accountObserved: true };
   } catch {
     return { provider: 'codex', observedAt: Date.now(), windows: [], error: t('Codex 사용량을 읽지 못했습니다. CLI 로그인을 확인해 주세요.') };
   }

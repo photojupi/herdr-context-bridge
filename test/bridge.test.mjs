@@ -187,3 +187,52 @@ test('approval mode can always be restored after an armed binding becomes stale'
   assert.equal(config.mode,'ask');
   await assert.rejects(saveConfig({mode:'auto'},options),{message:message('터미널의 세션이 바뀌었습니다. 다시 연결해 주세요.')});
 });
+
+test('installed CLIs and empty failed caches do not display an unobserved account',async()=>{
+  const options=await fixture();
+  await atomicJson(join(options.stateDir,'quota-claude.json'),{provider:'claude',observedAt:Date.now(),windows:[],error:'No usage'});
+  await atomicJson(join(options.stateDir,'quota-agy.json'),{provider:'agy',observedAt:Date.now(),windows:[]});
+  const status=await getStatus({...options,readCodexQuota:async()=>({provider:'codex',observedAt:Date.now(),windows:[],error:'Not signed in'})});
+  assert.deepEqual(status.quotas,{});
+  assert.equal(status.installed.agy,true);
+});
+
+test('status displays observed AGY buckets and legacy usage without inferring authentication from bindings',async()=>{
+  const options=await fixture(),now=Date.now();
+  await atomicJson(join(options.stateDir,'quota-claude.json'),{provider:'claude',observedAt:now-700000,windows:[{id:'five_hour',remainingPercent:0,resetsAt:now+60000}]});
+  await atomicJson(join(options.stateDir,'quota-agy.json'),{provider:'agy',accountObserved:true,observedAt:now,windows:[{id:'custom-bucket',label:'custom-bucket',remainingPercent:42,resetsAt:now+60000}]});
+  const status=await getStatus({...options,readCodexQuota:async()=>({provider:'codex',observedAt:now,windows:[],error:'No account'})});
+  assert.deepEqual(Object.keys(status.quotas),['claude','agy']);
+  assert.equal(status.quotas.agy.windows[0].remainingPercent,42);
+  assert.equal(status.quotas.claude.observedAt,now-700000);
+  assert.equal(status.config.mode,'ask');
+  await assert.rejects(startHandoff({sourceKey:'claude:abc',target:'agy'},options),{message:message('다른 제공자를 대상으로 선택해 주세요.')});
+});
+
+test('an official observed account remains visible when no percentage is available',async()=>{
+  const options=await fixture();
+  const status=await getStatus({...options,readCodexQuota:async()=>({provider:'codex',accountObserved:true,observedAt:Date.now(),windows:[],error:'No subscription quota'})});
+  assert.deepEqual(Object.keys(status.quotas),['codex']);
+  assert.deepEqual(status.quotas.codex.windows,[]);
+});
+
+test('later query failures retain observed account history without retaining stale capacity',async()=>{
+  const options=await fixture(),now=Date.now();
+  await atomicJson(join(options.stateDir,'quota-codex.json'),{provider:'codex',observedAt:now-61000,windows:[{id:'codex:primary',remainingPercent:80,resetsAt:now+60000}]});
+  let status=await getStatus({...options,readCodexQuota:async()=>{throw new Error('Temporary failure');}});
+  assert.equal(status.quotas.codex.accountObserved,true);
+  assert.deepEqual(status.quotas.codex.windows,[]);
+  const saved=await readJson(join(options.stateDir,'quota-codex.json'));
+  assert.equal(saved.accountObserved,true);
+  await atomicJson(join(options.stateDir,'quota-codex.json'),{...saved,observedAt:now-61000});
+  status=await getStatus({...options,readCodexQuota:async()=>({provider:'codex',observedAt:Date.now(),windows:[],error:'Still unavailable'})});
+  assert.equal(status.quotas.codex.accountObserved,true);
+  assert.deepEqual(status.quotas.codex.windows,[]);
+});
+
+test('status does not invoke a missing Codex CLI or show empty provider placeholders',async()=>{
+  const options=await fixture();
+  const status=await getStatus({...options,installed:async()=>false,readCodexQuota:async()=>{assert.fail('Missing CLI must not be launched');}});
+  assert.deepEqual(status.quotas,{});
+  assert.deepEqual(status.installed,{claude:false,codex:false,agy:false});
+});

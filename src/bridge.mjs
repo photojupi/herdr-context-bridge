@@ -8,7 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {randomUUID,createHash} from 'node:crypto';
 import {atomicJson,readJson,jsonRecords,stateDirectory,safeId} from './storage.mjs';
 import {validateConfig,decideHandoff} from './policy.mjs';
-import {localizeQuota} from './quota.mjs';
+import {hasAccountObservation,localizeQuota} from './quota.mjs';
 
 const execFileAsync=promisify(execFile);
 const cliPath=fileURLToPath(new URL('./cli.mjs',import.meta.url));
@@ -184,20 +184,23 @@ export async function getStatus(options={}) {
   const dir=options.stateDir||stateDirectory();
   await reconcileJobs(options);
   let config=await configAt(dir);
+  const installed=Object.fromEntries(await Promise.all(['claude','codex','agy'].map(async provider=>[provider,await (options.installed||installedCli)(provider)])));
   let codex=await readJson(join(dir,'quota-codex.json'));
-  if(!codex||Date.now()-codex.observedAt>=60000) {
+  if(installed.codex&&(!codex||Date.now()-codex.observedAt>=60000)) {
     const previousAccountId=codex?.accountId;
+    const accountObserved=hasAccountObservation(codex);
     try { codex=await (options.readCodexQuota||(await import('./quota.mjs')).readCodexQuota)(); }
     catch(e) { codex={provider:'codex',observedAt:Date.now(),windows:[],error:e.message}; }
+    if(accountObserved) codex.accountObserved=true;
     if(previousAccountId&&codex.accountId&&previousAccountId!==codex.accountId) {
       config={...config,autoSessions:[]};
       await atomicJson(join(dir,'config.json'),config);
     }
     await atomicJson(join(dir,'quota-codex.json'),codex);
   }
-  const claude=await readJson(join(dir,'quota-claude.json'),{provider:'claude',observedAt:0,windows:[],error:t('Claude가 다음 응답을 마치면 사용량이 표시됩니다.')});
-  const quotas={claude:localizeQuota(claude),codex:localizeQuota(codex)};
-  const installed={claude:await installedCli('claude'),codex:await installedCli('codex')};
+  const claude=await readJson(join(dir,'quota-claude.json'));
+  const agy=await readJson(join(dir,'quota-agy.json'));
+  const quotas=Object.fromEntries(Object.entries({claude,codex,agy}).filter(([,quota])=>hasAccountObservation(quota)).map(([provider,quota])=>[provider,localizeQuota(quota)]));
   let terminals=[],terminalError=null;
   try { terminals=await (options.terminals||liveTerminals)(); } catch(e) { terminalError=e.message; }
   const bindings=(await jsonRecords(join(dir,'terminals'))).filter(s=>terminals.some(t=>t.address===s.terminalId&&t.cwd===s.cwd&&providerOf(t.agent)===s.provider));

@@ -152,6 +152,7 @@ test('statusLine stores quota without persisting unrelated stdin and missing usa
   assert.equal(result.code, 0);
   assert.equal(result.stdout,`Claude: ${message('확인 불가')}\n`);
   assert.deepEqual(JSON.parse(await readFile(join(stateDir, 'quota-claude.json'), 'utf8')).windows, []);
+  assert.equal(JSON.parse(await readFile(join(stateDir, 'quota-claude.json'), 'utf8')).accountObserved,true);
 });
 
 test('statusLine preserves complete original stdin stdout stderr and exit code', async t => {
@@ -167,4 +168,42 @@ test('statusLine original command still runs when capture input is malformed', a
   const stateDir = await state(t);
   await writeFile(join(stateDir, 'install.json'), JSON.stringify({ originalStatusLine: { type: 'command', command: 'cat' } }));
   assert.equal((await runStatusLine('not json\n', { stateDir, env: process.env })).stdout, 'not json\n');
+});
+
+test('AGY statusLine captures quota without session handoff binding and preserves original command streams', async t => {
+  const stateDir=await state(t);
+  const command=`"${process.execPath}" -e 'let s="";process.stdin.on("data",x=>s+=x);process.stdin.on("end",()=>{process.stdout.write(s);process.stderr.write("agy stderr");process.exitCode=7})'`;
+  await writeFile(join(stateDir,'install.json'),JSON.stringify({originalAgyStatusLine:{type:'command',command}}));
+  const input=JSON.stringify({session_id:'agy-1',cwd:'/project',email:'PRIVATE@example.com',quota:{'gemini-weekly':{remaining_fraction:0.5,reset_in_seconds:60}}});
+  assert.deepEqual(await runStatusLine(input,{provider:'agy',stateDir,env:{...process.env,HC_TERMINAL_ID:'terminal-1'}}),{stdout:input,stderr:'agy stderr',code:7});
+  const stored=await readFile(join(stateDir,'quota-agy.json'),'utf8');
+  assert.equal(JSON.parse(stored).windows[0].remainingPercent,50);
+  assert.equal(JSON.parse(stored).accountObserved,true);
+  assert.doesNotMatch(stored,/PRIVATE|email|agy-1|project/);
+  await assert.rejects(readdir(join(stateDir,'sessions')),{code:'ENOENT'});
+  await assert.rejects(readdir(join(stateDir,'terminals')),{code:'ENOENT'});
+});
+
+test('malformed and authenticating empty AGY payloads create no account observation', async t => {
+  const stateDir=await state(t),options={provider:'agy',stateDir,env:{}};
+  for(const input of ['not json','null','[]',JSON.stringify({agent_state:'authenticating',quota:{}})])
+    await runStatusLine(input,options);
+  const saved=JSON.parse(await readFile(join(stateDir,'quota-agy.json'),'utf8'));
+  assert.notEqual(saved.accountObserved,true);
+  assert.deepEqual(saved.windows,[]);
+  await writeFile(join(stateDir,'quota-agy.json'),JSON.stringify({provider:'agy',windows:[{remainingPercent:25}]}));
+  await runStatusLine('{}',options);
+  const previous=JSON.parse(await readFile(join(stateDir,'quota-agy.json'),'utf8'));
+  assert.equal(previous.accountObserved,true);
+  assert.deepEqual(previous.windows,[]);
+});
+
+test('AGY default statusLine keeps valid buckets visible beside unavailable buckets', async t => {
+  const stateDir=await state(t);
+  const input=JSON.stringify({quota:{valid:{remaining_fraction:0.75},disabled:{remaining_fraction:1,disabled:true},amount:{remaining_amount:10}}});
+  const output=await runStatusLine(input,{provider:'agy',stateDir,env:{}});
+  assert.match(output.stdout,/valid.*75%/);
+  assert.match(output.stdout,new RegExp(`disabled.*${message('확인 불가')}`));
+  assert.match(output.stdout,new RegExp(`amount.*${message('확인 불가')}`));
+  assert.doesNotMatch(output.stdout,/null%/);
 });

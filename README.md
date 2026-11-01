@@ -2,9 +2,11 @@
 
 [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
 
-A local macOS tool for checking Claude Code and Codex account quotas in Herdr and handing off work history to a new terminal in the same working directory when a limit runs low. The default is **Ask every time**. Automatic handoff must be enabled explicitly for a source session you select.
+A local macOS tool for checking Claude Code, Codex, and AGY (Antigravity CLI) account quotas in Herdr. Claude/Codex work history can be handed off to a new terminal in the same working directory when a limit runs low. The default is **Ask every time**. Automatic handoff must be enabled explicitly for a source session you select.
 
 It uses only Node.js built-in modules, with no separate web server or package installation required.
+
+Providers appear after this helper observes account usage through an official interface: a successful Codex quota query, or valid Claude/AGY statusline quota data. Installation, settings files, and an AGY `authenticating` event alone do not count. Previously observed providers remain visible with unavailable or stale information when collection fails; this is an observation history, not a live login-status check. Existing valid usage caches are recognized. AGY currently supports usage display and alerts; conversation handoff remains available between Claude and Codex.
 
 ![Illustration with example data showing the quota summary and handoff details](docs/images/context-bridge-preview.svg)
 
@@ -40,6 +42,8 @@ The installer copies the personal mod and helper to `~/.config/herdr-app/mods/co
 
 It adds a statusline wrapper and hooks to Claude's `~/.claude/settings.json`, and hooks to Codex's `~/.codex/hooks.json`. Existing hooks are preserved. The original Claude statusline command receives the original stdin, and its output and exit code are preserved. Initial configuration backups and a list of changed files are saved in `~/.local/state/herdr-context-bridge/install.json`. If you change the statusline command before reinstalling, the wrapper uses that new command as its original while preserving the initial file backup.
 
+For AGY, it adds a wrapper to `~/.gemini/antigravity-cli/settings.json`. The original command's stdin, stdout, stderr, and exit code are preserved, as are existing statusline options. A new statusline stacks below AGY's built-in display. An explicitly disabled statusline stays disabled. Reinstall with `npm run install:mod` to add AGY support to an existing installation, then let your signed-in AGY session supply its normal statusline data. No test prompt is required. Before the first valid observation the provider stays hidden; **Refresh** only rereads Claude/AGY's collected data.
+
 Codex may require you to trust installed hooks through its normal CLI procedure, such as `/hooks`. Existing sessions may not load new hooks immediately; use manual session binding below. Installing alone does not produce Claude usage data: it appears after an API response supplies statusline input in that session.
 
 Before removal, switch back to your original layout. This example uses the default `main`.
@@ -58,6 +62,8 @@ The uninstaller removes the added hooks and statusline wrapper and restores the 
 2. In **Select source session**, choose a local terminal and inspect candidate sessions in the same working directory. You can also manually bind existing sessions that hooks did not connect. The most recent file is never automatically selected as the source.
 3. In **Confirm manual handoff**, review the source, target, directory, and preservation scope, then select **Hand off**. Handoff is deferred while the source is working or waiting for ordinary approval.
 4. In the target's new tab, verify delivery of the initial prompt, reading of the records, and resumption of work. **Target terminal opened** in the details dialog means a tab-creation response was received; it does not confirm that the model read every record.
+
+The bottom summary shows the user-selected Gemini4 Argon bucket (`gemini-argon-wtu-weekly`) as **AGY Week XX%**. Its tooltip includes the model name, original bucket ID, and reset time. If this bucket is absent, the summary shows **AGY Week —** without falling back to another weekly bucket. This is the user's chosen representative item, not an automatic price comparison. Details and alerts retain all returned buckets under their original names. Periods are not guessed from names, buckets are not combined, and `remaining_amount` without a total is not converted into a percentage. Disabled buckets show unavailable usage. AGY alerts do not open a handoff confirmation.
 
 The default remaining-quota threshold is 10%, adjustable from 1% to 50% in settings. An alert appears even if the first observed value is already at or below the threshold. Shared app state suppresses duplicate alerts for the same provider, usage window, and reset cycle. **Later** closes the confirmation dialog.
 
@@ -83,6 +89,7 @@ The bottom summary remains mounted while details are closed, so usage refresh, j
 | --- | --- | --- |
 | Codex | Official `codex app-server` → `account/rateLimits/read` | Multiple limit buckets and usage windows returned by the current CLI account. The older single `rateLimits` format is also supported |
 | Claude Code | `rate_limits` in official `statusLine` stdin | Subscription/spending windows actually supplied to the statusline, such as 5-hour and 7-day windows. May be absent before the first API response |
+| AGY (Antigravity CLI) | `quota` in official [`statusLine` stdin](https://antigravity.google/docs/cli/statusline/) | Named quota buckets with `remaining_fraction`, reset information, and optional `disabled`; amount-only buckets remain percentage-unknown |
 
 The displayed value is the **remaining percentage in an account limit window**. It is not the remaining context tokens in a particular session or the number of requests you can still make. Missing values are not assumed to be 100%, and passing a reset time does not automatically make a window full. Values older than 10 minutes are marked stale; only fresh, valid values are used for automatic decisions. An explicit unavailable response from the official API is not treated as available capacity even if a percentage remains.
 

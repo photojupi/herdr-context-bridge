@@ -4,7 +4,7 @@ import { mkdir, rmdir, rename, stat, readdir, unlink, writeFile } from 'node:fs/
 import { randomUUID } from 'node:crypto';
 import { basename, isAbsolute, join } from 'node:path';
 import { stateDirectory, readJson, atomicJson } from './storage.mjs';
-import { normalizeClaudeQuota } from './quota.mjs';
+import { normalizeClaudeQuota, normalizeAgyQuota, hasAccountObservation } from './quota.mjs';
 
 const safeId = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,200}$/.test(value);
 
@@ -107,20 +107,23 @@ export async function capture(provider, event, { stateDir, env = process.env } =
   }
 }
 
-export async function runStatusLine(input, { stateDir, env = process.env } = {}) {
+export async function runStatusLine(input, { provider = 'claude', stateDir, env = process.env } = {}) {
   stateDir ??= stateDirectory(env);
+  if (!['claude', 'agy'].includes(provider)) return { stdout: '', stderr: '', code: 0 };
   let payload;
   try { payload = JSON.parse(input); } catch {}
-  const quota = normalizeClaudeQuota(payload);
+  const quota = provider === 'agy' ? normalizeAgyQuota(payload) : normalizeClaudeQuota(payload);
   // Capture failures must never hide an existing user status line.
   try {
     if (!payload?.agent_id && !payload?.subagent_id) {
-      await atomicJson(join(stateDir, 'quota-claude.json'), quota);
-      await capture('claude', payload, { stateDir, env });
+      const path = join(stateDir, `quota-${provider}.json`);
+      if (hasAccountObservation(await readJson(path))) quota.accountObserved = true;
+      await atomicJson(path, quota);
+      if (provider === 'claude') await capture('claude', payload, { stateDir, env });
     }
   } catch {}
   const installation = await readJson(join(stateDir, 'install.json'), {});
-  const original = installation?.originalStatusLine;
+  const original = provider === 'agy' ? installation?.originalAgyStatusLine : installation?.originalStatusLine;
   const command = typeof original === 'string' ? original : original?.command;
   if (typeof command === 'string' && command.length) {
     return new Promise(resolve => {
@@ -135,6 +138,7 @@ export async function runStatusLine(input, { stateDir, env = process.env } = {})
       child.stdin.end(input);
     });
   }
-  const summary = quota.error ? t('확인 불가') : quota.windows.map(window => t('{label} 잔여 {percent}%',{label:window.label,percent:window.remainingPercent})).join(' · ');
-  return { stdout: `Claude: ${summary}\n`, stderr: '', code: 0 };
+  const summary = quota.error ? t('확인 불가') : quota.windows.map(window => window.remainingPercent === null || (window.resetsAt !== null && window.resetsAt <= Date.now())
+    ? `${window.label} ${t('확인 불가')}` : t('{label} 잔여 {percent}%',{label:window.label,percent:window.remainingPercent})).join(' · ');
+  return { stdout: `${provider === 'agy' ? 'AGY' : 'Claude'}: ${summary}\n`, stderr: '', code: 0 };
 }

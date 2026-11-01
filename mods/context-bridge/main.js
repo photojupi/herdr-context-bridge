@@ -4,7 +4,7 @@ import { agents, panes, spaces, exec, appHome, props, theme, shared, setShared, 
 import { quotaState, quotaSummary, lowQuotaAlerts, localSources, sourceKey } from './ui-logic.js';
 import { uiLocale, translate, formatStamp } from './i18n.js';
 
-const names = { claude: 'Claude Code', codex: 'Codex' };
+const names = { claude: 'Claude Code', codex: 'Codex', agy: 'AGY (Antigravity)' };
 const message = (error) => String(error?.message ?? error);
 
 export default class ContextBridge extends View {
@@ -99,9 +99,13 @@ export default class ContextBridge extends View {
     const seen = shared('context-bridge.alerts') ?? {};
     const alerts = Object.values(this.data.quotas ?? {}).flatMap((quota) => lowQuotaAlerts(quota, this.data.config?.threshold ?? 10, Date.now(), seen));
     if (!alerts.length) return;
-    for (const alert of alerts) seen[alert.key] = alert.cycle;
-    setShared('context-bridge.alerts', seen);
     const alert = alerts[0];
+    seen[alert.key] = alert.cycle;
+    setShared('context-bridge.alerts', seen);
+    if (alert.provider === 'agy') {
+      notify({ title: this.tr('lowQuotaTitle', { provider: names.agy }), body: this.tr('lowUsageBody', { window: alert.window.label ?? alert.window.id, remaining: alert.window.remainingPercent }), level: 'warning' });
+      return;
+    }
     const automatic = this.data.bindings?.some((source) => source.provider === alert.provider && source.decision?.action === 'auto');
     notify({ title: this.tr('lowQuotaTitle', { provider: names[alert.provider] }), body: this.tr('lowQuotaBody', { window: alert.window.label ?? alert.window.id, remaining: alert.window.remainingPercent, action: this.tr(automatic ? 'autoStarted' : 'reviewPrompt') }), level: 'warning', action: { name: 'context-bridge.review' } });
     if (!automatic) this.openReview(alert.provider);
@@ -200,7 +204,7 @@ export default class ContextBridge extends View {
       .child(h_flex().items_center().child(div().flex_1().font_semibold().child(names[provider]))
         .child(this.text(this.tr(state === 'fresh' ? 'fresh' : state === 'stale' ? 'stale' : 'unavailable'), t, state === 'fresh' ? t.ansi2 : t.ansi3)));
     for (const window of quota?.windows ?? []) {
-      const known = Number.isFinite(window.remainingPercent) && window.remainingPercent >= 0 && window.remainingPercent <= 100;
+      const known = !window.disabled && Number.isFinite(window.remainingPercent) && window.remainingPercent >= 0 && window.remainingPercent <= 100;
       const expired = Number.isFinite(window.resetsAt) && window.resetsAt <= Date.now();
       const remaining = known && !expired ? Math.max(0, Math.min(100, window.remainingPercent)) : null;
       card.child(v_flex().gap(4)
@@ -211,7 +215,7 @@ export default class ContextBridge extends View {
     }
     if (!quota?.windows?.length) card.child(this.text(this.tr('noUsage'), t));
     if (quota?.error) card.child(this.text(message(quota.error), t, t.ansi1));
-    if (state === 'stale') card.child(this.text(this.tr('staleHint'), t, t.ansi3));
+    if (state === 'stale') card.child(this.text(this.tr(provider === 'agy' ? 'staleUsageHint' : 'staleHint'), t, t.ansi3));
     card.child(this.text(this.tr('updatedAt', { time: this.stamp(quota?.observedAt) }), t));
     if (provider === 'claude') card.child(this.text(this.tr('claudeStatusHint'), t));
     return card;
@@ -263,9 +267,10 @@ export default class ContextBridge extends View {
 
   summary(t) {
     const entries = quotaSummary(this.data?.quotas, this.data?.config?.threshold ?? 10, Date.now());
-    const label = (entry) => `${this.tr(entry.period)} ${entry.remaining === null ? '—' : `${entry.remaining}%`}${entry.warning ? ' !' : entry.state === 'stale' ? ' ~' : ''}`;
-    const hint = (entry) => `${names[entry.provider]} · ${this.tr(entry.period)} · ${entry.remaining === null ? this.tr('unavailable') : this.tr('remaining', { remaining: entry.remaining })} · ${this.tr(entry.state === 'expired' ? 'resetPending' : entry.state === 'fresh' ? 'fresh' : entry.state === 'stale' ? 'staleHint' : 'unavailable')}${entry.warning ? ` · ${this.tr('threshold', { threshold: this.data?.config?.threshold ?? 10 })}` : ''}`;
-    const tooltip = [this.tr('openDetails'), ...entries.map(hint), ...(this.error ? [this.error] : [])].join('\n');
+    const period = (entry) => this.tr(entry.period);
+    const label = (entry) => `${period(entry) ? `${period(entry)} ` : ''}${entry.remaining === null ? '—' : `${entry.remaining}%`}${entry.warning ? ' !' : entry.state === 'stale' ? ' ~' : ''}`;
+    const hint = (entry) => `${names[entry.provider]}${entry.provider === 'agy' ? ` · ${entry.label} (${entry.bucketId})` : ''} · ${period(entry)} · ${entry.remaining === null ? this.tr('unavailable') : this.tr('remaining', { remaining: entry.remaining })} · ${this.tr(entry.state === 'expired' ? 'resetPending' : entry.state === 'fresh' ? 'fresh' : entry.state === 'stale' ? entry.provider === 'agy' ? 'staleUsageHint' : 'staleHint' : 'unavailable')}${entry.provider === 'agy' ? ` · ${this.tr('resetAt', { time: this.stamp(entry.resetsAt) })}` : ''}${entry.warning ? ` · ${this.tr('threshold', { threshold: this.data?.config?.threshold ?? 10 })}` : ''}`;
+    const tooltip = [this.tr('openDetails'), ...(entries.length ? entries.map(hint) : [this.tr('awaitingUsage')]), ...(this.error ? [this.error] : [])].join('\n');
     const root = h_flex().id('context-bridge-summary').size_full().min_w(0).items_center().gap(8).px(6)
       .bg(t.chrome).text_color(t.foreground).text_size(11).overflow_hidden().cursor_pointer()
       .tooltip(tooltip).accessibility_label(tooltip).on_click(() => this.openDetails());
@@ -273,8 +278,9 @@ export default class ContextBridge extends View {
       .text_color(this.error ? t.ansi3 : t.muted).tooltip(this.tr('openDetails')).accessibility_label(this.tr('openDetails'))
       .on_click((_event, cx) => { cx?.stop_propagation(); this.openDetails(); }).child(this.error ? '!' : '≡'));
     const content = h_flex().min_w(0).items_center().gap(12).overflow_hidden();
-    for (const provider of ['claude', 'codex']) {
-      const group = h_flex().items_center().gap(6).flex_shrink_0().child(div().font_semibold().child(provider === 'claude' ? 'Claude' : 'Codex'));
+    if (!entries.length) content.child(this.text(this.localeReady ? this.tr('awaitingUsage') : '…', t));
+    for (const provider of [...new Set(entries.map((entry) => entry.provider))]) {
+      const group = h_flex().items_center().gap(6).flex_shrink_0().child(div().font_semibold().child(provider === 'claude' ? 'Claude' : provider === 'agy' ? 'AGY' : 'Codex'));
       for (const entry of entries.filter((item) => item.provider === provider)) group.child(div().id(`summary-${provider}-${entry.period}`)
         .text_color(entry.warning || entry.state === 'stale' ? t.ansi3 : entry.remaining === null ? t.muted : t.foreground)
         .tooltip(hint(entry)).child(this.localeReady ? label(entry) : '…'));
@@ -301,7 +307,11 @@ export default class ContextBridge extends View {
     if (!this.data) body.child(this.text(this.localeReady ? this.tr(this.loading ? 'loadingUsage' : 'usageFailed') : '…', t));
     else {
       if (this.data.terminalError) body.child(this.text(this.tr('terminalError', { error: this.data.terminalError }), t, t.ansi1));
-      if (!review) body.child(this.quotaCard('claude', t)).child(this.quotaCard('codex', t));
+      if (!review) {
+        const providers = Object.keys(names).filter((provider) => this.data.quotas?.[provider]);
+        for (const provider of providers) body.child(this.quotaCard(provider, t));
+        if (!providers.length) body.child(this.text(this.tr('awaitingUsage'), t));
+      }
       if (review) body.child(this.sessionPicker(t));
       else {
         body.child(this.button('choose-source', session ? this.tr('sourceSelected', { provider: names[session.provider], id: session.id.slice(0, 12) }) : this.tr('chooseSource'), () => this.openReview(), t));

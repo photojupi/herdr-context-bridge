@@ -1,5 +1,6 @@
 export const catalogs = {
   en: {
+    awaitingUsage: 'Waiting for usage after sign-in.', lowUsageBody: '{window}: {remaining}% left', staleUsageHint: 'Over 10 minutes old',
     fiveHour: '5h', weekly: 'Week', openDetails: 'Open usage and handoff details', close: 'Close',
     unavailable: 'Unavailable', helperResponse: 'Unable to read helper response. Check the installation path.', helperFailed: 'Helper execution failed.',
     lowQuotaTitle: '{provider} quota is low', lowQuotaBody: '{window}: {remaining}% left · {action}', autoStarted: 'Automatic handoff started for registered sessions.', reviewPrompt: 'Review the session to hand off.',
@@ -11,6 +12,7 @@ export const catalogs = {
     sourceSession: 'Source session: {id}', workingFolder: 'Working folder: {cwd}', targetQuota: 'Target quota: {state}', targetFresh: 'Current data available', targetCheck: 'Check needed', recordsHint: 'Conversation, tool records, summaries and Git state are saved locally. Running processes and internal model state are not copied.', sourceHint: 'The source is kept. Check that the target read the full record in the new terminal.', cliMissing: '{provider} CLI is not installed.', accountHint: 'Current local account · refreshes every 60s', later: 'Later', processing: 'Processing…', handoff: 'Hand off', manualReview: 'Confirm manual handoff',
   },
   ko: {
+    awaitingUsage: '로그인 후 사용량을 기다리는 중입니다.', lowUsageBody: '{window}: {remaining}% 남음', staleUsageHint: '10분 이상 지난 수치',
     fiveHour: '5시간', weekly: '주간', openDetails: '사용량과 인계 상세 열기', close: '닫기',
     unavailable: '확인 불가', helperResponse: 'helper 응답을 읽을 수 없습니다. 설치 경로를 확인해 주세요.', helperFailed: 'helper 실행에 실패했습니다.',
     lowQuotaTitle: '{provider} 잔여량이 부족합니다', lowQuotaBody: '{window}: {remaining}% 남음 · {action}', autoStarted: '등록한 세션의 자동 인계를 시작했습니다.', reviewPrompt: '인계할 세션을 확인해 주세요.',
@@ -22,6 +24,7 @@ export const catalogs = {
     sourceSession: '원본 세션: {id}', workingFolder: '작업 폴더: {cwd}', targetQuota: '대상 잔여량: {state}', targetFresh: '최신 수치 있음', targetCheck: '확인 필요', recordsHint: '대화·도구 기록·압축 요약·Git 상태를 로컬 파일로 보존합니다. 실행 중 프로세스와 모델 내부 상태는 복제되지 않습니다.', sourceHint: '원본은 유지됩니다. 대상이 전체 기록을 읽었는지는 새 터미널에서 확인해 주세요.', cliMissing: '{provider} CLI가 설치되어 있지 않습니다.', accountHint: '현재 로컬 로그인 계정 · 60초마다 갱신', later: '나중에', processing: '처리 중…', handoff: '인계하기', manualReview: '수동 인계 확인',
   },
   ja: {
+    awaitingUsage: 'ログイン後の使用量を待っています。', lowUsageBody: '{window}: 残り {remaining}%', staleUsageHint: '10分以上経過した数値',
     fiveHour: '5時間', weekly: '週間', openDetails: '使用量と引き継ぎの詳細を開く', close: '閉じる',
     unavailable: '確認不可', helperResponse: 'ヘルパーの応答を読み取れません。インストール先を確認してください。', helperFailed: 'ヘルパーの実行に失敗しました。',
     lowQuotaTitle: '{provider} の残量が少なくなっています', lowQuotaBody: '{window}: 残り {remaining}% · {action}', autoStarted: '登録セッションの自動引き継ぎを開始しました。', reviewPrompt: '引き継ぐセッションを確認してください。',
@@ -33,6 +36,7 @@ export const catalogs = {
     sourceSession: '元セッション: {id}', workingFolder: '作業フォルダー: {cwd}', targetQuota: '対象の残量: {state}', targetFresh: '最新データあり', targetCheck: '要確認', recordsHint: '会話・ツール記録・圧縮要約・Git 状態をローカルに保存します。実行中のプロセスとモデルの内部状態は複製されません。', sourceHint: '元セッションは保持されます。全記録の読み取りは新しいターミナルで確認してください。', cliMissing: '{provider} CLI がインストールされていません。', accountHint: '現在のローカルアカウント · 60秒ごとに更新', later: '後で', processing: '処理中…', handoff: '引き継ぐ', manualReview: '手動引き継ぎを確認',
   },
   'zh-CN': {
+    awaitingUsage: '正在等待登录后的用量。', lowUsageBody: '{window}: 剩余 {remaining}%', staleUsageHint: '超过10分钟的数据',
     fiveHour: '5小时', weekly: '每周', openDetails: '打开用量和交接详情', close: '关闭',
     unavailable: '无法确认', helperResponse: '无法读取辅助程序响应。请检查安装路径。', helperFailed: '辅助程序执行失败。',
     lowQuotaTitle: '{provider} 剩余额度不足', lowQuotaBody: '{window}: 剩余 {remaining}% · {action}', autoStarted: '已开始自动交接已注册的会话。', reviewPrompt: '请确认要交接的会话。',
