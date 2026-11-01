@@ -2,7 +2,7 @@
 
 [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
 
-Herdr で Claude Code と Codex のアカウント残量を確認し、上限が近づいたときに同じ作業フォルダの新しいターミナルへ作業履歴を引き継ぐ、ローカルの macOS ツールです。既定は **毎回承認** です。自動引き継ぎは、選択した引き継ぎ元セッションに対してユーザーが明示的に有効にする必要があります。
+Herdr で Claude Code と Codex のアカウント残量を確認し、上限が近づいたときに同じ作業フォルダの新しいターミナルへ作業履歴を引き継ぐ、macOS とネイティブ Windows 向けのローカルツールです。既定は **毎回承認** です。自動引き継ぎは、選択した引き継ぎ元セッションに対してユーザーが明示的に有効にする必要があります。
 
 Node.js の組み込みモジュールのみを使用し、別の Web サーバーやパッケージのインストールは不要です。
 
@@ -18,20 +18,23 @@ AGY の公式 [`statusLine` の `quota`](https://antigravity.google/docs/cli/sta
 
 ## 対応言語
 
-下部の要約・詳細画面と helper は英語（`en`）、韓国語（`ko`）、日本語（`ja`）、中国本土の簡体字中国語（`zh-CN`）に対応しています。macOS の優先する言語リストの先頭を使用し、繁体字中国語を含む非対応言語の場合は英語を表示します。先頭が非対応でも、リスト内の別の言語は選びません。macOS の言語設定を取得できない場合にのみ、`LC_ALL`、`LC_MESSAGES`、`LANG`、`Intl` の順に参照します。個別の手動言語設定はありません。`node src/cli.mjs locale` は、自動引き継ぎポリシーを評価せずに、検出した言語を `{ "locale": "ja" }` のような JSON で返します。
+下部の要約・詳細画面と helper は英語（`en`）、韓国語（`ko`）、日本語（`ja`）、中国本土の簡体字中国語（`zh-CN`）に対応しています。macOS では優先する言語リストの先頭を使用し、繁体字中国語を含む非対応言語の場合は英語を表示します。先頭が非対応でも、リスト内の別の言語は選びません。Windows、または macOS の言語設定を取得できない場合は、`LC_ALL`、`LC_MESSAGES`、`LANG`、`Intl` の順に参照します。Windows の優先言語 API は別途呼び出しません。個別の手動言語設定はありません。`node src/cli.mjs locale` は、自動引き継ぎポリシーを評価せずに、検出した言語を `{ "locale": "ja" }` のような JSON で返します。
 
 ## 必要な環境
 
-- macOS、Herdr アプリ、`herdr-app` と `hc` コマンド。Herdr 0.1.10 を対象に作成しています。
-- Node.js 22.5 以降、`git`、引き継ぎに使う各プロバイダーの `claude`・`codex` CLI。
+- macOS またはネイティブ Windows、Herdr アプリ、`herdr-app` と `hc` コマンド。Herdr 0.1.10 を対象に作成しています。
+- Node.js 22.5 以降、`git`（Windows では Git for Windows）、引き継ぎに使う各プロバイダーの `claude`・`codex` CLI。Windows ではアプリの `PATH` に `node` が必要です。
 - 各 CLI で正常にログイン済みの現在のローカルプロファイル。アプリが起動する helper の `PATH` からも CLI を見つけられる必要があります。
 - `app-server`、アカウント使用量 API、full thread history API に対応する Codex。Codex を対象とする新しいタブでは `--no-daemon` を使用します。
+- Windows の CLI はネイティブの `.exe`・`.com` と標準 npm `.cmd` shim に対応し、shim の Node またはネイティブの実行対象を直接起動します。プロンプト引数をシェル展開で変えないため、任意の `.cmd`・`.bat` スクリプトは CLI 起動用として対応しません。
+
+CI は `macos-latest` と `windows-latest` を対象に設定しています。この変更は macOS で開発・検証しており、Windows 実機の Herdr アプリでの動作はまだ検証していません。
 
 リモートの Herdr マシンや、複数の認証プロファイルの同時管理には対応していません。ログインアカウントを変更する前に **毎回承認** に切り替え、使用量とセッションの関連付けを再確認してください。
 
 ## インストールとアンインストール
 
-Herdr を一度起動して既定のレイアウトを作成し、リポジトリをクローンしてインストールします。
+Herdr を一度起動して既定のレイアウトを作成し、リポジトリをクローンしてインストールします。macOS では次を実行します。
 
 ```sh
 git clone https://github.com/photojupi/herdr-context-bridge.git
@@ -42,9 +45,24 @@ herdr-app check ~/.config/herdr-app/mods/context-bridge
 herdr-app do layout.switch '{"name":"context-bridge"}'
 ```
 
-インストーラーは個人用 mod と helper を `~/.config/herdr-app/mods/context-bridge/` にコピーし、既定の `main` レイアウトを複製した `layouts/context-bridge.json` の既存の下部ステータスバーと同じ行に残量の要約を配置します。ステータスバーの高さは維持し、ステータスバーがないレイアウトには下部に一行追加します。再インストールすると従来の右パネルをこの構成に置き換え、要約を重複させません。組み込み mod と元の `main.json` は変更しません。インストールコマンド自体は画面のレイアウトを切り替えません。
+Windows では PowerShell を使います。
+
+```powershell
+git clone https://github.com/photojupi/herdr-context-bridge.git
+cd herdr-context-bridge
+npm.cmd run install:mod -- --dry-run
+npm.cmd run install:mod
+herdr-app check "$env:USERPROFILE/.config/herdr-app/mods/context-bridge"
+herdr-app do layout.switch --name context-bridge
+```
+
+上のパスは Herdr の既定の設定フォルダを前提としています。インストーラーは [Herdr の `app_dir()`](https://github.com/herdrdev/herdr-app/blob/master/src/mods.rs) に従い、`HERDR_APP_HOME`、`XDG_CONFIG_HOME/herdr-app`、Windows の `USERPROFILE/.config/herdr-app` または macOS の `HOME/.config/herdr-app` の順に選びます。上書き設定がある場合は `herdr-app check` にもそのフォルダを指定してください。この文書の `~` は各ユーザーのホームフォルダです。
+
+既定ではインストーラーは個人用 mod と helper を `~/.config/herdr-app/mods/context-bridge/` にコピーし、既定の `main` レイアウトを複製した `layouts/context-bridge.json` の既存の下部ステータスバーと同じ行に残量の要約を配置します。ステータスバーの高さは維持し、ステータスバーがないレイアウトには下部に一行追加します。再インストールすると従来の右パネルをこの構成に置き換え、要約を重複させません。組み込み mod と元の `main.json` は変更しません。インストールコマンド自体は画面のレイアウトを切り替えません。
 
 Claude の `~/.claude/settings.json` にステータスラインの wrapper と hooks を追加し、Codex の `~/.codex/hooks.json` に hooks を追加します。既存の hooks は保持します。既存の Claude ステータスラインコマンドには元の stdin を渡し、出力と終了コードを維持します。初回の設定バックアップと変更ファイル一覧は `~/.local/state/herdr-context-bridge/install.json` に保存します。再インストール前にユーザーがステータスラインコマンドを変更した場合、その新しいコマンドを wrapper の呼び出し元コマンドとして使用し、初回のファイルバックアップは保持します。
+
+Windows では元の Claude ステータスラインを Git Bash があればそのシェルで、なければ PowerShell で実行します。AGY は既定の Windows コマンドシェルを使います。引き継ぎには `/usr/bin/env` に代えて Node ランチャーを使い、引数と環境変数を保持します。
 
 Codex では `/hooks` など CLI の通常の手順で、インストールされた hooks を信頼する必要がある場合があります。既存のセッションには新しい hooks がすぐ反映されないことがあるため、後述の手動のセッション関連付けを利用してください。Claude の使用量はインストールだけでは表示されず、該当セッションで API 応答後にステータスライン入力が届くと表示されます。
 
@@ -54,6 +72,14 @@ Codex では `/hooks` など CLI の通常の手順で、インストールさ�
 herdr-app do layout.switch '{"name":"main"}'
 npm run uninstall:mod -- --dry-run
 npm run uninstall:mod
+```
+
+Windows では次を実行します。
+
+```powershell
+herdr-app do layout.switch --name main
+npm.cmd run uninstall:mod -- --dry-run
+npm.cmd run uninstall:mod
 ```
 
 アンインストーラーは追加した hooks とステータスラインの wrapper を取り除き、以前のコマンドを復元します。インストール後に変更したステータスラインのオプションと、無関係な設定は保持します。他の管理対象ファイルもインストール時の内容と一致する場合にのみ削除・復元し、ユーザーが変更したファイルは結果の `preserved` に表示して残します。**引き継ぎ原文・作業状態・バックアップはアンインストール後も保持されます。** 最後のインストール記録は、同じデータフォルダの `last-install.json` に残ります。
@@ -108,7 +134,7 @@ npm run uninstall:mod
 
 ## 保存先とコマンド
 
-既定のデータ保存先は `~/.local/state/herdr-context-bridge` です。設定、使用量キャッシュ、セッションの関連付け、引き継ぎ jobs、ロック、`bundles/`、インストール時のバックアップをソースリポジトリの外に保存します。新しいデータディレクトリは 0700、ファイルは 0600 の権限で作成します。bundle には会話・ツール結果が含まれるので、共有前に内容を確認してください。自動の保存期限や削除機能はありません。
+既定のデータ保存先は Windows では `USERPROFILE/.local/state/herdr-context-bridge`、macOS では `HOME/.local/state/herdr-context-bridge` です。設定、使用量キャッシュ、セッションの関連付け、引き継ぎ jobs、ロック、`bundles/`、インストール時のバックアップをソースリポジトリの外に保存します。POSIX では新しいデータディレクトリを 0700、ファイルを 0600 の権限で作成し、Windows ではユーザープロファイルフォルダの ACL 権限が適用されます。bundle には会話・ツール結果が含まれるので、共有前に内容を確認してください。自動の保存期限や削除機能はありません。
 
 | コマンド | 用途 |
 | --- | --- |
@@ -128,12 +154,13 @@ npm run uninstall:mod
 | `node src/cli.mjs handoff '<JSON>'` | `sourceKey`、`target`、`automatic:false`、任意の `space` で手動引き継ぎを要求 |
 | `node src/cli.mjs job <jobId>` | 特定の引き継ぎジョブを取得 |
 
-公開の取得・設定・引き継ぎコマンドは JSON を出力し、エラー時は `{ "error": "…" }` と失敗の終了コードを返します。`capture`、`statusline`、`worker` はインストールされた hooks と helper が使う内部コマンドです。`status` は自動モードでは実行を引き起こす場合があるため、読み取り専用コマンドとして扱わないでください。
+公開の取得・設定・引き継ぎコマンドは JSON を出力し、エラー時は `{ "error": "…" }` と失敗の終了コードを返します。`capture`、`statusline`、`worker`、`launch` はインストールされた hooks と helper が使う内部コマンドです。`status` は自動モードでは実行を引き起こす場合があるため、読み取り専用コマンドとして扱わないでください。
 
 | 環境変数 | 用途 |
 | --- | --- |
 | `HERDR_BRIDGE_STATE_DIR` | helper のデータ保存先を変更。開発・分離テスト向けに推奨し、インストーラー・アプリ・hooks で同じ値を使う必要がある |
-| `HERDR_APP_HOME` | インストール先の Herdr 設定フォルダを変更。既定は `~/.config/herdr-app` |
+| `HERDR_APP_HOME` | インストール先の Herdr 設定フォルダを変更。`XDG_CONFIG_HOME` より優先 |
+| `XDG_CONFIG_HOME` | `HERDR_APP_HOME` が未設定の場合、配下の `herdr-app` を Herdr 設定フォルダとして使用 |
 | `HC_TERMINAL_ID` | Herdr が hooks に渡す引き継ぎ元ターミナル識別子 |
 
 インストーラーは既定の `~/.claude` と `~/.codex` の設定を対象にします。CLI の個別の認証・設定ディレクトリを複数運用する構成は、このインストール手順の対応範囲外です。

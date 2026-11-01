@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { t } from '../src/i18n.mjs';
 
@@ -12,18 +12,22 @@ import { t } from '../src/i18n.mjs';
 // provider CLI, credentials, or existing user session is contacted.
 const root = await realpath(await mkdtemp(join(tmpdir(), 'herdr-bridge-smoke-')));
 const cli = fileURLToPath(new URL('../src/cli.mjs', import.meta.url));
+const windows = process.platform === 'win32';
 const home = join(root, 'home');
-const bin = join(root, 'bin');
-const stateDir = join(root, 'state "quoted"');
-const cwd = join(root, "project [a] $literal 'quote'");
+const bin = join(root, 'bin tools');
+const stateDir = join(root, windows ? 'state [quoted] & %literal%' : 'state "quoted"');
+const cwd = join(root, "project [a] $literal 'quote' & %literal% !bang! ^caret");
 const callsFile = join(root, 'calls.jsonl');
 const terminalsFile = join(root, 'terminals.json');
 const launchGate = join(root, 'launch-gate');
 const children = new Set();
 const jobs = new Set();
 const env = {
-  HOME: home, PATH: `${bin}:/usr/bin:/bin`, LANG: 'en_US.UTF-8',
-  TMPDIR: root, CLAUDE_CONFIG_DIR: join(home, '.claude'), CODEX_HOME: join(home, '.codex'),
+  ...Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(SystemRoot|WINDIR|ComSpec)$/i.test(key))),
+  HOME: home, USERPROFILE: home, PATH: [bin, ...(windows ? [] : ['/usr/bin', '/bin'])].join(delimiter),
+  PATHEXT: '.COM;.EXE;.BAT;.CMD', LANG: 'en_US.UTF-8',
+  TMPDIR: root, TEMP: root, TMP: root, APPDATA: join(home, 'AppData', 'Roaming'), LOCALAPPDATA: join(home, 'AppData', 'Local'),
+  CLAUDE_CONFIG_DIR: join(home, '.claude'), CODEX_HOME: join(home, '.codex'),
   HERDR_BRIDGE_STATE_DIR: stateDir, SMOKE_CALLS: callsFile, SMOKE_TERMINALS: terminalsFile,
   SMOKE_LAUNCH_GATE: launchGate,
 };
@@ -35,8 +39,28 @@ async function putJson(path, value) {
 }
 async function executable(name, body) {
   const path = join(bin, name);
-  await writeFile(path, `#!${process.execPath}\n${body}\n`, { mode: 0o700 });
-  await chmod(path, 0o700);
+  if (windows) {
+    await writeFile(`${path}.cjs`, `#!/usr/bin/env node\n${body}\n`);
+    await writeFile(`${path}.cmd`, `@ECHO off
+GOTO start
+:find_dp0
+SET dp0=%~dp0
+EXIT /b
+:start
+SETLOCAL
+CALL :find_dp0
+IF EXIST "%dp0%\\node.exe" (
+  SET "_prog=%dp0%\\node.exe"
+) ELSE (
+  SET "_prog=node"
+  SET PATHEXT=%PATHEXT:;.JS;=;%
+)
+endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%" "%dp0%\\${name}.cjs" %*
+`);
+  } else {
+    await writeFile(path, `#!${process.execPath}\n${body}\n`, { mode: 0o700 });
+    await chmod(path, 0o700);
+  }
 }
 async function helper(command, args = [], input = '', extraEnv = {}) {
   const child = spawn(process.execPath, [cli, command, ...args], { cwd, env: { ...env, ...extraEnv }, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -154,7 +178,7 @@ process.stdout.write(JSON.stringify({terminal:'target-'+process.pid,tab:'tab-'+p
   assert.equal(status.value.config.mode, 'ask');
   assert.deepEqual(status.value.installed, { claude: true, codex: true, agy: true });
   assert.deepEqual(Object.keys(status.value.quotas), ['codex']);
-  await putJson(join(stateDir, 'install.json'), { originalAgyStatusLine: { command: 'cat >/dev/null' } });
+  await putJson(join(stateDir, 'install.json'), { originalAgyStatusLine: { command: `"${process.execPath}" -e "process.stdin.resume()"` } });
   await helper('statusline', ['agy'], JSON.stringify({ product: 'antigravity', agent_state: 'authenticating', quota: {} }));
   assert.equal((await helper('status')).value.quotas.agy, undefined);
   const agyInput = { product: 'antigravity', agent_state: 'idle', quota: { 'custom-weekly': { remaining_fraction: 0.42, reset_in_seconds: 3600 } }, email: 'private@example.invalid' };
@@ -199,10 +223,12 @@ process.stdout.write(JSON.stringify({terminal:'target-'+process.pid,tab:'tab-'+p
     assert.deepEqual(await readFile(transcriptPath), raw);
     assert.equal(manifest.raw[0].sha256, createHash('sha256').update(raw).digest('hex'));
     assert.deepEqual(Buffer.concat(await Promise.all(manifest.chunks.map(chunk => readFile(join(job.directory, chunk.path))))), raw);
-    const launch = (await calls()).find(call => call.binary === 'herdr-app' && call.payload.argv.includes(`HERDR_BRIDGE_JOB_ID=${jobId}`));
+    const launch = (await calls()).find(call => call.binary === 'herdr-app' && call.payload.argv[4] === jobId);
+    assert.ok(launch);
     assert.equal(launch.payload.space, 'smoke-space');
-    assert.deepEqual(launch.payload.argv.slice(0, 5), ['/usr/bin/env', `HERDR_BRIDGE_AUTO_ORIGIN=${automatic ? '1' : '0'}`, `HERDR_BRIDGE_JOB_ID=${jobId}`, 'codex', '--no-daemon']);
-    assert.equal(launch.payload.argv.length, 6);
+    assert.deepEqual(launch.payload.argv.slice(0, 6), [process.execPath, cli, 'launch', 'codex', jobId, automatic ? '1' : '0']);
+    assert.equal(launch.payload.argv.length, 7);
+    assert.equal(launch.payload.argv[6], target.args[1]);
     assert.ok(!launch.payload.argv.some(arg => /--yolo|--dangerously|--bypass/.test(arg)));
   }
   assert.equal((await calls()).filter(call => call.binary === 'herdr-app').length, 2);
@@ -222,5 +248,5 @@ process.stdout.write(JSON.stringify({terminal:'target-'+process.pid,tab:'tab-'+p
       }
     } catch (error) { if (error.code !== 'ENOENT') process.stderr.write(`smoke cleanup: ${error.message}\n`); }
   }
-  await rm(root, { recursive: true, force: true });
+  await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }

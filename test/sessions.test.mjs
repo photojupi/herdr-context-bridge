@@ -1,16 +1,50 @@
 import {t as message} from '../src/i18n.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { listSessions } from '../src/sessions.mjs';
+import { listSessions, validatedTranscript } from '../src/sessions.mjs';
 
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'bridge-sessions-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   return dir;
 }
+test('native absolute cwd discovers Claude and Codex sessions including Windows drive paths', async t => {
+  const home = await fixture(t);
+  const cwd = join(home, '작업 폴더');
+  const project = join(home, 'projects', 'native');
+  await mkdir(cwd);
+  await mkdir(project, { recursive: true });
+  await writeFile(join(project, 'native.jsonl'), JSON.stringify({ sessionId: 'native', cwd }) + '\n');
+  const claude = await listSessions('claude', cwd, { claudeHome: home });
+  assert.deepEqual(claude.map(s => ({ id: s.id, cwd: s.cwd })), [{ id: 'native', cwd }]);
+  const codex = await listSessions('codex', cwd, { codexClient: { request: async () => ({ data: [{ id: 'native', cwd, updatedAt: 1 }], nextCursor: null }) } });
+  assert.deepEqual(codex.map(s => ({ id: s.id, cwd: s.cwd })), [{ id: 'native', cwd }]);
+});
+test('transcript validation accepts native paths and child names beginning with two dots', async t => {
+  const home = await fixture(t);
+  const root = join(home, 'projects');
+  const directory = join(root, '..project');
+  await mkdir(directory, { recursive: true });
+  const path = join(directory, 'native.jsonl');
+  await writeFile(path, '{}\n');
+  assert.equal(await validatedTranscript(path, [root]), await realpath(path));
+});
+test('transcript validation rejects relative paths, sibling roots and parent traversal', async t => {
+  const home = await fixture(t);
+  const root = join(home, 'projects');
+  const sibling = join(home, 'projects-other');
+  await mkdir(root);
+  await mkdir(sibling);
+  await writeFile(join(sibling, 'outside.jsonl'), '{}\n');
+  await writeFile(join(home, 'outside.jsonl'), '{}\n');
+  await assert.rejects(validatedTranscript('outside.jsonl', [root]), { message: message('허용되지 않는 transcript 경로') });
+  for (const path of [join(sibling, 'outside.jsonl'), join(root, '..', 'outside.jsonl')]) {
+    await assert.rejects(validatedTranscript(path, [root]), { message: message('transcript 경로가 provider data root 밖에 있습니다') });
+  }
+});
 test('Claude 동일 cwd의 모든 세션을 반환하며 최신 세션을 자동 선택하지 않는다', async t => {
   const home = await fixture(t);
   const project = join(home, 'projects', '-workspace');

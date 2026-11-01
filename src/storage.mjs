@@ -4,8 +4,11 @@ import {join,dirname} from 'node:path';
 import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
 
-export function stateDirectory(env=process.env) {
-  return env.HERDR_BRIDGE_STATE_DIR || join(env.HOME || homedir(),'.local','state','herdr-context-bridge');
+export function homeDirectory(env=process.env,platform=process.platform) {
+  return (platform==='win32' ? env.USERPROFILE || (env.HOMEDRIVE && env.HOMEPATH ? env.HOMEDRIVE+env.HOMEPATH : null) : env.HOME) || homedir();
+}
+export function stateDirectory(env=process.env,platform=process.platform) {
+  return env.HERDR_BRIDGE_STATE_DIR || join(homeDirectory(env,platform),'.local','state','herdr-context-bridge');
 }
 export function safeId(value) {
   if(typeof value !== 'string' || !/^[a-zA-Z0-9_-]{1,160}$/.test(value)) throw new Error(t('잘못된 식별자입니다.'));

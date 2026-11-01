@@ -1,14 +1,14 @@
 import {t} from './i18n.mjs';
 import { open, readdir, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, join, relative } from 'node:path';
+import { basename, isAbsolute, join, relative, sep } from 'node:path';
 
 const DISCOVERY_LIMIT = 5000;
 const METADATA_BYTES = 131072;
 
 export async function listSessions(provider, cwd, { stateDir, claudeHome = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), codexClient } = {}) {
   if (!['claude', 'codex'].includes(provider)) throw new Error(t('지원하지 않는 provider'));
-  if (typeof cwd !== 'string' || !cwd.startsWith('/')) throw new Error(t('절대 cwd 경로가 필요합니다'));
+  if (typeof cwd !== 'string' || !isAbsolute(cwd)) throw new Error(t('절대 cwd 경로가 필요합니다'));
   if (provider === 'codex') {
     if (!codexClient) {
       const { withCodex } = await import('./codex.mjs');
@@ -97,13 +97,13 @@ export async function listSessions(provider, cwd, { stateDir, claudeHome = proce
 }
 
 export async function validatedTranscript(path, roots) {
-  if (typeof path !== 'string' || !path.startsWith('/') || !path.endsWith('.jsonl')) throw new Error(t('허용되지 않는 transcript 경로'));
+  if (typeof path !== 'string' || !isAbsolute(path) || !path.endsWith('.jsonl')) throw new Error(t('허용되지 않는 transcript 경로'));
   const canonical = await realpath(path);
   for (const root of roots) {
     let canonicalRoot;
     try { canonicalRoot = await realpath(root); } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
     const child = relative(canonicalRoot, canonical);
-    if (child && !child.startsWith('..') && !child.startsWith('/')) return canonical;
+    if (child && child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child)) return canonical;
   }
   throw new Error(t('transcript 경로가 provider data root 밖에 있습니다'));
 }

@@ -41,7 +41,8 @@ test('job launches a new tab in the source directory with ordinary permissions',
   assert.equal(launch.folder,'/tmp/project');
   assert.equal(launch.space,'space1');
   assert.equal(launch.argv.at(-1),'Read /tmp/bundle/START_HERE.md');
-  assert.ok(launch.argv.includes('--no-daemon'));
+  assert.equal(launch.argv[0],process.execPath);
+  assert.deepEqual(launch.argv.slice(2,-1),['launch','codex',jobId,'0']);
   assert.ok(!JSON.stringify(launch).includes('--yolo'));
   assert.deepEqual(await readJson(join(options.stateDir,'sessions','claude-abc.json')),options.source);
 });

@@ -1,14 +1,26 @@
 import {t} from './i18n.mjs';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { join } from 'node:path';
+import { resolveCommand } from './commands.mjs';
 
 // A fresh app-server owns authentication. This client never resumes a session.
 export async function withCodex(callback, options = {}) {
-  const child = spawn(options.binary ?? 'codex', options.args ?? ['app-server'], {
+  let command;
+  try { command = await resolveCommand(options.binary ?? 'codex', { env: options.env ?? process.env }); }
+  catch { throw new Error(t('Codex app-server could not start')); }
+  const child = spawn(command.file, [...command.args, ...(options.args ?? ['app-server'])], {
     env: options.env ?? process.env,
     stdio: ['pipe', 'pipe', 'pipe'],
     shell: false,
+    windowsHide: true,
   });
+  const closed = new Promise(resolve => child.once('close', resolve));
+  const waitForClose = async timeout => {
+    let timer;
+    try { return await Promise.race([closed.then(() => true), new Promise(resolve => { timer = setTimeout(() => resolve(false), timeout); })]); }
+    finally { clearTimeout(timer); }
+  };
   const pending = new Map();
   let nextId = 0;
   let failure;
@@ -78,14 +90,19 @@ export async function withCodex(callback, options = {}) {
   } finally {
     clearTimeout(timer);
     lines.close();
-    child.stdin.destroy();
-    if (child.exitCode === null && child.signalCode === null) {
-      child.kill('SIGTERM');
-      await new Promise(resolve => {
-        const killTimer = setTimeout(() => { child.kill('SIGKILL'); resolve(); }, 500);
-        child.once('close', () => { clearTimeout(killTimer); resolve(); });
-      });
+    // npm launchers must have time to reap their native app-server after EOF.
+    child.stdin.end();
+    if (!await waitForClose(200)) {
+      if (process.platform === 'win32' && child.pid && child.exitCode === null && child.signalCode === null) {
+        const taskkill = join(process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows', 'System32', 'taskkill.exe');
+        await new Promise(resolve => execFile(taskkill, ['/PID', String(child.pid), '/T', '/F'], { timeout: 500, windowsHide: true }, () => resolve()));
+      } else child.kill('SIGTERM');
+      if (!await waitForClose(500)) {
+        child.kill('SIGKILL');
+        await waitForClose(100);
+      }
     }
+    child.stdin.destroy();
     fail(new Error(t('Codex app-server connection closed')));
   }
 }

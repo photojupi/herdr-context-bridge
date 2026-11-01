@@ -2,7 +2,7 @@
 
 [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
 
-A local macOS tool for checking Claude Code, Codex, and AGY (Antigravity CLI) account quotas in Herdr. Claude/Codex work history can be handed off to a new terminal in the same working directory when a limit runs low. The default is **Ask every time**. Automatic handoff must be enabled explicitly for a source session you select.
+A local macOS and native Windows tool for checking Claude Code, Codex, and AGY (Antigravity CLI) account quotas in Herdr. Claude/Codex work history can be handed off to a new terminal in the same working directory when a limit runs low. The default is **Ask every time**. Automatic handoff must be enabled explicitly for a source session you select.
 
 It uses only Node.js built-in modules, with no separate web server or package installation required.
 
@@ -14,20 +14,23 @@ Providers appear after this helper observes account usage through an official in
 
 ## Languages
 
-The summary, details dialog, and helper support English (`en`), Korean (`ko`), Japanese (`ja`), and Mainland Simplified Chinese (`zh-CN`). They use the first language in macOS's preferred language list. Unsupported languages, including Traditional Chinese, fall back to English; detection does not skip an unsupported first language to select another preferred language. Only when the macOS setting is unavailable does detection consult `LC_ALL`, `LC_MESSAGES`, `LANG`, then `Intl`. There is no separate manual language setting. `node src/cli.mjs locale` reads the detected language as JSON, such as `{ "locale": "en" }`, without evaluating automatic handoff policy.
+The summary, details dialog, and helper support English (`en`), Korean (`ko`), Japanese (`ja`), and Mainland Simplified Chinese (`zh-CN`). On macOS they use the first preferred language. Unsupported languages, including Traditional Chinese, fall back to English; detection does not skip an unsupported first language to select another preferred language. On Windows, or when the macOS setting is unavailable, detection consults `LC_ALL`, `LC_MESSAGES`, `LANG`, then `Intl`. It does not query a separate Windows preferred-language API. There is no separate manual language setting. `node src/cli.mjs locale` reads the detected language as JSON, such as `{ "locale": "en" }`, without evaluating automatic handoff policy.
 
 ## Requirements
 
-- macOS, the Herdr app, and the `herdr-app` and `hc` commands. Written for Herdr 0.1.10.
-- Node.js 22.5 or newer, `git`, and the `claude` or `codex` CLI for each handoff provider.
+- macOS or native Windows, the Herdr app, and the `herdr-app` and `hc` commands. Written for Herdr 0.1.10.
+- Node.js 22.5 or newer, `git` (Git for Windows on Windows), and the `claude` or `codex` CLI for each handoff provider. Windows requires `node` on the app's `PATH`.
 - A currently signed-in local profile in each CLI. The helper launched by the app must also be able to find the CLIs through its `PATH`.
 - A Codex version supporting `app-server`, the account usage API, and the full thread history API. New tabs targeting Codex use `--no-daemon`.
+- Windows CLI discovery supports native `.exe`/`.com` programs and standard npm `.cmd` shims, whose Node or native targets are launched directly. Arbitrary `.cmd`/`.bat` shell scripts are not supported as CLI launchers, so prompt arguments do not pass through shell expansion.
+
+CI is configured for `macos-latest` and `windows-latest`. This change was developed and checked on macOS; operation in the Windows Herdr desktop app has not yet been verified on a Windows machine.
 
 Remote Herdr machines and simultaneous management of multiple authentication profiles are outside the scope of this tool. Before switching signed-in accounts, select **Ask every time**, then recheck usage and session bindings.
 
 ## Installation and removal
 
-Launch Herdr once to create its default layout, then clone the repository and install:
+Launch Herdr once to create its default layout, then clone the repository and install. On macOS:
 
 ```sh
 git clone https://github.com/photojupi/herdr-context-bridge.git
@@ -38,9 +41,24 @@ herdr-app check ~/.config/herdr-app/mods/context-bridge
 herdr-app do layout.switch '{"name":"context-bridge"}'
 ```
 
-The installer copies the personal mod and helper to `~/.config/herdr-app/mods/context-bridge/` and places the quota summary alongside the existing bottom status bar in `layouts/context-bridge.json`, a copy of the default `main` layout. The row keeps the existing status bar height; a layout without a status bar gets one bottom row. Reinstalling replaces the former right panel with this layout without duplicating the summary. Built-in mods and the original `main.json` remain unchanged. The installation command itself does not switch the visible layout.
+On Windows, use PowerShell:
+
+```powershell
+git clone https://github.com/photojupi/herdr-context-bridge.git
+cd herdr-context-bridge
+npm.cmd run install:mod -- --dry-run
+npm.cmd run install:mod
+herdr-app check "$env:USERPROFILE/.config/herdr-app/mods/context-bridge"
+herdr-app do layout.switch --name context-bridge
+```
+
+The paths above assume the default Herdr configuration directory. Following [Herdr's `app_dir()`](https://github.com/herdrdev/herdr-app/blob/master/src/mods.rs), the installer uses `HERDR_APP_HOME`, then `XDG_CONFIG_HOME/herdr-app`, then `USERPROFILE/.config/herdr-app` on Windows or `HOME/.config/herdr-app` on macOS. If you set an override, use that directory in `herdr-app check` too. In this document, `~` means the corresponding user home directory.
+
+By default, the installer copies the personal mod and helper to `~/.config/herdr-app/mods/context-bridge/` and places the quota summary alongside the existing bottom status bar in `layouts/context-bridge.json`, a copy of the default `main` layout. The row keeps the existing status bar height; a layout without a status bar gets one bottom row. Reinstalling replaces the former right panel with this layout without duplicating the summary. Built-in mods and the original `main.json` remain unchanged. The installation command itself does not switch the visible layout.
 
 It adds a statusline wrapper and hooks to Claude's `~/.claude/settings.json`, and hooks to Codex's `~/.codex/hooks.json`. Existing hooks are preserved. The original Claude statusline command receives the original stdin, and its output and exit code are preserved. Initial configuration backups and a list of changed files are saved in `~/.local/state/herdr-context-bridge/install.json`. If you change the statusline command before reinstalling, the wrapper uses that new command as its original while preserving the initial file backup.
+
+On Windows, the original Claude statusline runs through Git Bash when available, otherwise PowerShell; AGY retains the default Windows command shell. Handoff uses a Node launcher to preserve arguments and environment variables without requiring `/usr/bin/env`.
 
 For AGY, it adds a wrapper to `~/.gemini/antigravity-cli/settings.json`. The original command's stdin, stdout, stderr, and exit code are preserved, as are existing statusline options. A new statusline stacks below AGY's built-in display. An explicitly disabled statusline stays disabled. Reinstall with `npm run install:mod` to add AGY support to an existing installation, then let your signed-in AGY session supply its normal statusline data. No test prompt is required. Before the first valid observation the provider stays hidden; **Refresh** only rereads Claude/AGY's collected data.
 
@@ -52,6 +70,14 @@ Before removal, switch back to your original layout. This example uses the defau
 herdr-app do layout.switch '{"name":"main"}'
 npm run uninstall:mod -- --dry-run
 npm run uninstall:mod
+```
+
+On Windows:
+
+```powershell
+herdr-app do layout.switch --name main
+npm.cmd run uninstall:mod -- --dry-run
+npm.cmd run uninstall:mod
 ```
 
 The uninstaller removes the added hooks and statusline wrapper and restores the previous command. It preserves statusline options changed after installation and unrelated settings. Other managed files are removed or restored only if they still match their installed contents; user-edited files are left in place and listed under `preserved` in the result. **Original handoff records, work state, and backups remain after removal.** The last installation record stays in `last-install.json` in the same data directory.
@@ -109,7 +135,7 @@ The source session is neither terminated nor sent input. The target CLI retains 
 
 ## Storage and commands
 
-The default data directory is `~/.local/state/herdr-context-bridge`. Configuration, usage caches, session bindings, handoff jobs, locks, `bundles/`, and installation backups are stored outside the source repository. New data directories use mode 0700 and files use 0600. Bundles contain conversations and tool results; review their contents before sharing. There is no automatic retention period or deletion feature.
+The default data directory is `USERPROFILE/.local/state/herdr-context-bridge` on Windows and `HOME/.local/state/herdr-context-bridge` on macOS. Configuration, usage caches, session bindings, handoff jobs, locks, `bundles/`, and installation backups are stored outside the source repository. On POSIX, new data directories use mode 0700 and files use 0600; Windows uses the user profile directory's ACL permissions. Bundles contain conversations and tool results; review their contents before sharing. There is no automatic retention period or deletion feature.
 
 | Command | Purpose |
 | --- | --- |
@@ -129,12 +155,13 @@ The default data directory is `~/.local/state/herdr-context-bridge`. Configurati
 | `node src/cli.mjs handoff '<JSON>'` | Request a manual handoff using `sourceKey`, `target`, `automatic:false`, and optional `space` |
 | `node src/cli.mjs job <jobId>` | Query a specific handoff job |
 
-Public query/configuration/handoff commands output JSON and return `{ "error": "…" }` with a failing exit code on error. `capture`, `statusline`, and `worker` are internal commands used by installed hooks and the helper. `status` can trigger execution in automatic mode; do not treat it as a read-only query.
+Public query/configuration/handoff commands output JSON and return `{ "error": "…" }` with a failing exit code on error. `capture`, `statusline`, `worker`, and `launch` are internal commands used by installed hooks and the helper. `status` can trigger execution in automatic mode; do not treat it as a read-only query.
 
 | Environment variable | Purpose |
 | --- | --- |
 | `HERDR_BRIDGE_STATE_DIR` | Override the helper data directory. Recommended for development and isolated tests; the installer, app, and hooks must use the same value |
-| `HERDR_APP_HOME` | Override the target Herdr configuration directory; default `~/.config/herdr-app` |
+| `HERDR_APP_HOME` | Override the target Herdr configuration directory; takes precedence over `XDG_CONFIG_HOME` |
+| `XDG_CONFIG_HOME` | Herdr configuration base; uses its `herdr-app` subdirectory when `HERDR_APP_HOME` is unset |
 | `HC_TERMINAL_ID` | Source terminal identifier passed by Herdr to hooks |
 
 The installer targets the default `~/.claude` and `~/.codex` configuration directories. Configurations using multiple separate CLI authentication/configuration directories are outside the scope of this installation flow.

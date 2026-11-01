@@ -24,6 +24,15 @@ const events = [
   { type: 'assistant', uuid: 'latest', parentUuid: 'compact', message: { content: 'unfinished work' } },
 ];
 const text = events.map(e => JSON.stringify(e)).join('\n') + '\n';
+test('native absolute cwd and transcript paths produce a readable bundle on Windows and POSIX', async t => {
+  const f = await fixture(t, text);
+  const cwd = join(f.home, '작업 폴더');
+  await mkdir(cwd);
+  const result = await createBundle({ ...f.source, cwd }, f.options);
+  assert.equal(result.manifest.source.cwd, cwd);
+  assert.equal(result.manifest.complete, true);
+  assert.equal(await readFile(join(result.directory, result.manifest.raw[0].path), 'utf8'), text);
+});
 test('Claude raw 정확한 bytes/hash, 도구 결과, branch/compaction/subagent를 보존한다', async t => {
   const f = await fixture(t, text);
   await mkdir(join(f.project, 'session-one', 'subagents'), { recursive: true });
@@ -41,7 +50,7 @@ test('Claude raw 정확한 bytes/hash, 도구 결과, branch/compaction/subagent
   assert.equal(chunks.join(''), text);
   assert.match(chunks.join(''), /tool output/);
   assert.match(result.prompt, /START_HERE/);
-  assert.equal((await stat(result.directory)).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') assert.equal((await stat(result.directory)).mode & 0o777, 0o700);
   assert.equal(await readFile(f.transcriptPath, 'utf8'), text);
 });
 test('잘린 마지막 JSONL은 raw에 유지하고 incomplete로 명시하며 정상 메시지로 해석하지 않는다', async t => {
@@ -135,12 +144,13 @@ test('스냅샷 복사 중 append되어도 최초 byte 경계만 보존한다', 
 });
 test('symlink를 통한 provider root 탈출을 거부한다', async t => {
   const f = await fixture(t, text);
-  const outside = join(f.home, 'private.jsonl');
-  await writeFile(outside, text);
-  const { unlink, symlink } = await import('node:fs/promises');
-  await unlink(f.transcriptPath);
-  await symlink(outside, f.transcriptPath);
-  await assert.rejects(createBundle(f.source, f.options), {message:message('transcript 경로가 provider data root 밖에 있습니다')});
+  const outside = join(f.home, 'private');
+  await mkdir(outside);
+  await writeFile(join(outside, 'session-one.jsonl'), text);
+  const { symlink } = await import('node:fs/promises');
+  const link = join(f.project, 'escape');
+  await symlink(outside, link, process.platform === 'win32' ? 'junction' : 'dir');
+  await assert.rejects(createBundle({ ...f.source, transcriptPath: join(link, 'session-one.jsonl') }, f.options), {message:message('transcript 경로가 provider data root 밖에 있습니다')});
 });
 test('Claude transcript의 sessionId/cwd가 선택한 source와 다르면 실패한다', async t => {
   const f = await fixture(t, '{"type":"user","sessionId":"someone-else","cwd":"/other","uuid":"first"}\n');
@@ -181,18 +191,15 @@ test('Claude historical cwd 변경 기록을 보존하고 마지막 applicable c
 });
 async function realConnectionFixture(t) {
   const f = await fixture(t, text);
-  const { chmod } = await import('node:fs/promises');
-  const bin = join(f.home, 'bin');
   const codexHome = join(f.home, 'codex');
-  await mkdir(bin);
   await mkdir(join(codexHome, 'sessions'), { recursive: true });
   const rollout = join(codexHome, 'sessions', 'rollout.jsonl');
   await writeFile(rollout, text);
   const fake = await readFile(new URL('./fixtures/bundle/connection-server.mjs', import.meta.url), 'utf8');
-  await writeFile(join(bin, 'codex'), fake.replace('#!/usr/bin/env node', `#!${process.execPath}`));
-  await chmod(join(bin, 'codex'), 0o700);
+  const server = join(f.home, 'connection-server.mjs');
+  await writeFile(server, fake.replace('  process.stdout.write', "  const base = join(process.env.HERDR_BRIDGE_STATE_DIR, 'bundles');\n  log({ event: 'response', lastMethod, rawExists: existsSync(base) && readdirSync(base).some(name => existsSync(join(base, name, 'raw', 'main.jsonl'))) });\n  process.stdout.write"));
   const log = join(f.home, 'connections.jsonl');
-  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, HERDR_BRIDGE_STATE_DIR: f.options.stateDir, CODEX_HOME: codexHome, BRIDGE_CONNECTION_LOG: log, BRIDGE_TEST_CWD: f.home, BRIDGE_TEST_ROLLOUT: rollout };
+  const env = { ...process.env, HERDR_BRIDGE_STATE_DIR: f.options.stateDir, CODEX_HOME: codexHome, BRIDGE_CONNECTION_LOG: log, BRIDGE_TEST_CWD: f.home, BRIDGE_TEST_ROLLOUT: rollout, BRIDGE_TEST_SERVER: server };
   return { ...f, log, env };
 }
 test('실제 export 연결은 RPC 사이에 닫히고 raw 파일 처리를 app-server 수명 밖에서 수행한다', async t => {
@@ -200,22 +207,29 @@ test('실제 export 연결은 RPC 사이에 닫히고 raw 파일 처리를 app-s
   const { promisify } = await import('node:util');
   const { execFile } = await import('node:child_process');
   const module = new URL('../src/bundle.mjs', import.meta.url).href;
-  const code = `const { createBundle } = await import(${JSON.stringify(module)}); await createBundle({ provider:'codex', id:'codex-one', cwd:process.env.BRIDGE_TEST_CWD });`;
+  const code = `const { createBundle } = await import(${JSON.stringify(module)}); await createBundle({ provider:'codex', id:'codex-one', cwd:process.env.BRIDGE_TEST_CWD }, { codexOptions: { binary:process.execPath, args:[process.env.BRIDGE_TEST_SERVER] } });`;
   await promisify(execFile)(process.execPath, ['--input-type=module', '-e', code], { env: f.env });
   const events = (await readFile(f.log, 'utf8')).trim().split('\n').map(JSON.parse);
-  const stops = events.filter(e => e.event === 'stop');
-  assert.equal(stops.length, 2);
-  assert.equal(stops[0].lastMethod, 'thread/read');
-  assert.equal(stops[0].rawExists, false);
-  assert.equal(stops[1].lastMethod, 'thread/turns/list');
-  assert.notEqual(stops[0].pid, stops[1].pid);
+  const responses = events.filter(e => e.event === 'response' && e.lastMethod !== 'initialize');
+  assert.equal(responses.length, 2);
+  assert.equal(responses[0].lastMethod, 'thread/read');
+  assert.equal(responses[0].rawExists, false);
+  assert.equal(responses[1].lastMethod, 'thread/turns/list');
+  assert.equal(responses[1].rawExists, true);
+  assert.notEqual(responses[0].pid, responses[1].pid);
+  for (const { pid } of responses) assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+  if (process.platform !== 'win32') {
+    const stops = events.filter(e => e.event === 'stop');
+    assert.equal(stops.length, 2);
+    assert.equal(stops[0].rawExists, false);
+  }
 });
 test('개별 Codex API timeout은 실패 후 원문 복사를 계속하지 않는다', async t => {
   const f = await realConnectionFixture(t);
   const { promisify } = await import('node:util');
   const { execFile } = await import('node:child_process');
   const module = new URL('../src/bundle.mjs', import.meta.url).href;
-  const code = `const { createBundle } = await import(${JSON.stringify(module)}); let timedOut=false; try { await createBundle({ provider:'codex', id:'codex-one', cwd:process.env.BRIDGE_TEST_CWD }, { codexOptions: { timeoutMs:500 } }); } catch(e) { timedOut=e.message===${JSON.stringify(message('Codex app-server timed out'))}; } if(!timedOut) throw new Error('request timeout was not honored'); await new Promise(r=>setTimeout(r,1100));`;
+  const code = `const { createBundle } = await import(${JSON.stringify(module)}); let timedOut=false; try { await createBundle({ provider:'codex', id:'codex-one', cwd:process.env.BRIDGE_TEST_CWD }, { codexOptions: { binary:process.execPath, args:[process.env.BRIDGE_TEST_SERVER], timeoutMs:500 } }); } catch(e) { timedOut=e.message===${JSON.stringify(message('Codex app-server timed out'))}; } if(!timedOut) throw new Error('request timeout was not honored'); await new Promise(r=>setTimeout(r,1100));`;
   await promisify(execFile)(process.execPath, ['--input-type=module', '-e', code], { env: { ...f.env, BRIDGE_READ_DELAY: '1000' } });
   const events = (await readFile(f.log, 'utf8')).trim().split('\n').map(JSON.parse);
   assert.equal(events.filter(e => e.event === 'start').length, 1);

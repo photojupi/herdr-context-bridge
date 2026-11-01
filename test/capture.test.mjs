@@ -12,6 +12,28 @@ async function state(t) {
   return stateDir;
 }
 const event = { session_id: 'abc-123', cwd: '/work/project', transcript_path: '/history/abc-123.jsonl', hook_event_name: 'SessionStart', prompt: 'SECRET prompt', token: 'SECRET token' };
+const nodeCommand=code=>`node -e "eval(Buffer.from('${Buffer.from(code).toString('base64')}','base64').toString())"`;
+const echoCommand=nodeCommand('process.stdin.pipe(process.stdout)');
+
+test('Windows Claude statusLine selects Git Bash while AGY retains the default shell',async t=>{
+  const {statusLineCommand}=await import('../src/capture.mjs');
+  const root=await state(t),bin=join(root,'bin'),cmd=join(root,'cmd');
+  await mkdir(bin);await mkdir(cmd);
+  await writeFile(join(cmd,'git.exe'),'fake');await writeFile(join(bin,'bash.exe'),'fake');
+  const env={Path:cmd};
+  assert.deepEqual(await statusLineCommand('printf "$value"',{platform:'win32',provider:'claude',env}),{file:join(bin,'bash.exe'),args:['-c','printf "$value"'],shell:false});
+  assert.deepEqual(await statusLineCommand('echo %value%',{platform:'win32',provider:'agy',env}),{file:'echo %value%',args:[],shell:true});
+});
+
+test('Windows Claude statusLine respects the explicit Bash path and falls back to PowerShell',async t=>{
+  const {statusLineCommand}=await import('../src/capture.mjs');
+  const root=await state(t),bash=join(root,'custom bash.exe');
+  await writeFile(bash,'fake');
+  assert.equal((await statusLineCommand('echo ok',{platform:'win32',provider:'claude',env:{CLAUDE_CODE_GIT_BASH_PATH:bash}})).file,bash);
+  const command=await statusLineCommand('Write-Output ok',{platform:'win32',provider:'claude',env:{SystemRoot:root}});
+  assert.equal(command.file,join(root,'System32','WindowsPowerShell','v1.0','powershell.exe'));
+  assert.deepEqual(command.args,['-NoProfile','-NonInteractive','-Command','Write-Output ok\nexit $LASTEXITCODE']);
+});
 
 test('statusline keeps transcript binding and rate_limit failure until a successful lifecycle event', async t => {
   const stateDir=await state(t),options={stateDir,env:{HC_TERMINAL_ID:'terminal-1'}};
@@ -65,12 +87,12 @@ test('late Stop and statusLine from old sessions cannot take back a reused termi
 
 test('statusLine refresh preserves the latest lifecycle event and capture failure cannot hide original output', async t => {
   const stateDir = await state(t);
-  const options = { stateDir, env: { HC_TERMINAL_ID: 'terminal-1' } };
+  const options = { stateDir, env: { ...process.env, HC_TERMINAL_ID: 'terminal-1' } };
   await capture('claude', { ...event, hook_event_name: 'Stop' }, options);
   await runStatusLine(JSON.stringify({ ...event, hook_event_name: undefined }), options);
   assert.equal(JSON.parse(await readFile(join(stateDir, 'sessions/claude-abc-123.json'), 'utf8')).event, 'Stop');
   await writeFile(join(stateDir, 'quota-claude.json'), '{}');
-  await writeFile(join(stateDir, 'install.json'), JSON.stringify({ originalStatusLine: { type: 'command', command: 'cat' } }));
+  await writeFile(join(stateDir, 'install.json'), JSON.stringify({ originalStatusLine: { type: 'command', command: echoCommand } }));
   const input = 'malformed json';
   assert.equal((await runStatusLine(input, options)).stdout, input);
 });
@@ -92,7 +114,7 @@ test('a busy terminal capture lock skips mutation and preserves the original sta
   assert.equal(await capture('codex', { session_id: 'new', cwd: '/project', hook_event_name: 'SessionStart' }, options), null);
   assert.ok(Date.now() - start < 500);
   assert.equal(JSON.parse(await readFile(join(stateDir, 'terminals/terminal-1.json'), 'utf8')).id, 'abc-123');
-  await writeFile(join(stateDir, 'install.json'), JSON.stringify({ originalStatusLine: { command: 'cat' } }));
+  await writeFile(join(stateDir, 'install.json'), JSON.stringify({ originalStatusLine: { command: echoCommand } }));
   const input = JSON.stringify(event);
   assert.equal((await runStatusLine(input, options)).stdout, input);
 });
@@ -157,7 +179,7 @@ test('statusLine stores quota without persisting unrelated stdin and missing usa
 
 test('statusLine preserves complete original stdin stdout stderr and exit code', async t => {
   const stateDir = await state(t);
-  const command = `"${process.execPath}" -e 'let s="";process.stdin.on("data",x=>s+=x);process.stdin.on("end",()=>{process.stdout.write(s);process.stderr.write("original stderr");process.exitCode=7})'`;
+  const command = nodeCommand('let s="";process.stdin.on("data",x=>s+=x);process.stdin.on("end",()=>{process.stdout.write(s);process.stderr.write("original stderr");process.exitCode=7})');
   await writeFile(join(stateDir, 'install.json'), JSON.stringify({ originalStatusLine: { type: 'command', command } }));
   const input = ` ${JSON.stringify(event)}\n`;
   const result = await runStatusLine(input, { stateDir, env: process.env });
@@ -166,13 +188,13 @@ test('statusLine preserves complete original stdin stdout stderr and exit code',
 
 test('statusLine original command still runs when capture input is malformed', async t => {
   const stateDir = await state(t);
-  await writeFile(join(stateDir, 'install.json'), JSON.stringify({ originalStatusLine: { type: 'command', command: 'cat' } }));
+  await writeFile(join(stateDir, 'install.json'), JSON.stringify({ originalStatusLine: { type: 'command', command: echoCommand } }));
   assert.equal((await runStatusLine('not json\n', { stateDir, env: process.env })).stdout, 'not json\n');
 });
 
 test('AGY statusLine captures quota without session handoff binding and preserves original command streams', async t => {
   const stateDir=await state(t);
-  const command=`"${process.execPath}" -e 'let s="";process.stdin.on("data",x=>s+=x);process.stdin.on("end",()=>{process.stdout.write(s);process.stderr.write("agy stderr");process.exitCode=7})'`;
+  const command=nodeCommand('let s="";process.stdin.on("data",x=>s+=x);process.stdin.on("end",()=>{process.stdout.write(s);process.stderr.write("agy stderr");process.exitCode=7})');
   await writeFile(join(stateDir,'install.json'),JSON.stringify({originalAgyStatusLine:{type:'command',command}}));
   const input=JSON.stringify({session_id:'agy-1',cwd:'/project',email:'PRIVATE@example.com',quota:{'gemini-weekly':{remaining_fraction:0.5,reset_in_seconds:60}}});
   assert.deepEqual(await runStatusLine(input,{provider:'agy',stateDir,env:{...process.env,HC_TERMINAL_ID:'terminal-1'}}),{stdout:input,stderr:'agy stderr',code:7});

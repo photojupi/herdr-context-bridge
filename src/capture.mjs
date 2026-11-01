@@ -2,9 +2,10 @@ import {t} from './i18n.mjs';
 import { spawn } from 'node:child_process';
 import { mkdir, rmdir, rename, stat, readdir, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { basename, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import { stateDirectory, readJson, atomicJson } from './storage.mjs';
 import { normalizeClaudeQuota, normalizeAgyQuota, hasAccountObservation } from './quota.mjs';
+import { resolveCommand } from './commands.mjs';
 
 const safeId = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,200}$/.test(value);
 
@@ -107,6 +108,22 @@ export async function capture(provider, event, { stateDir, env = process.env } =
   }
 }
 
+export async function statusLineCommand(command,{provider='claude',env=process.env,platform=process.platform}={}) {
+  if(platform!=='win32'||provider!=='claude') return {file:command,args:[],shell:true};
+  let bash=env.CLAUDE_CODE_GIT_BASH_PATH;
+  if(!bash) {
+    try {
+      const git=await resolveCommand('git',{env,platform});
+      for(const candidate of [join(dirname(git.file),'bash.exe'),join(dirname(git.file),'..','bin','bash.exe'),join(dirname(git.file),'..','usr','bin','bash.exe')]) {
+        try { if((await stat(candidate)).isFile()){bash=candidate;break;} } catch {}
+      }
+    } catch {}
+  }
+  if(bash) return {file:bash,args:['-c',command],shell:false};
+  const root=env.SystemRoot||env.SYSTEMROOT;
+  return {file:root?join(root,'System32','WindowsPowerShell','v1.0','powershell.exe'):'powershell.exe',args:['-NoProfile','-NonInteractive','-Command',`${command}\nexit $LASTEXITCODE`],shell:false};
+}
+
 export async function runStatusLine(input, { provider = 'claude', stateDir, env = process.env } = {}) {
   stateDir ??= stateDirectory(env);
   if (!['claude', 'agy'].includes(provider)) return { stdout: '', stderr: '', code: 0 };
@@ -126,8 +143,9 @@ export async function runStatusLine(input, { provider = 'claude', stateDir, env 
   const original = provider === 'agy' ? installation?.originalAgyStatusLine : installation?.originalStatusLine;
   const command = typeof original === 'string' ? original : original?.command;
   if (typeof command === 'string' && command.length) {
+    const invocation=await statusLineCommand(command,{provider,env});
     return new Promise(resolve => {
-      const child = spawn(command, { shell: true, env, stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn(invocation.file, invocation.args, { shell: invocation.shell, env, windowsHide:true, stdio: ['pipe', 'pipe', 'pipe'] });
       let stdout = '';
       let stderr = '';
       child.stdout.setEncoding('utf8').on('data', chunk => { stdout += chunk; });

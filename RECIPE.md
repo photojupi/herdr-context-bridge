@@ -1,6 +1,6 @@
 # Herdr Context Bridge
 
-Claude Code와 Codex 잔여량을 하단에서 함께 보고, 부족해지면 원본을 유지한 채 다른 제공자의 새 탭으로 기록을 인계하는 도구입니다. Herdr 테마에 맞추며 영어·한국어·일본어·간체 중국어를 지원하고 기본은 매번 승인입니다. macOS의 첫 번째 선호 언어를 사용하며 지원하지 않는 언어는 영어로 표시합니다. 자세한 감지 순서는 [한국어 README](README.ko.md#지원-언어)를 참조하세요. 실제 설치와 화면 확인 절차는 아래에 있으며, 이 문서 자체는 설치 완료 기록이 아닙니다.
+Claude Code와 Codex 잔여량을 하단에서 함께 보고, 부족해지면 원본을 유지한 채 다른 제공자의 새 탭으로 기록을 인계하는 macOS·네이티브 Windows 도구입니다. Herdr 테마에 맞추며 영어·한국어·일본어·간체 중국어를 지원하고 기본은 매번 승인입니다. 자동 인계는 사용자가 등록한 원본 세션에만 허용합니다. macOS에서는 첫 번째 선호 언어, Windows에서는 `LC_ALL`·`LC_MESSAGES`·`LANG`·`Intl` 순서로 감지하며 지원하지 않는 언어는 영어로 표시합니다. 자세한 감지 순서는 [한국어 README](README.ko.md#지원-언어)를 참조하세요. 실제 설치와 화면 확인 절차는 아래에 있으며, 이 문서 자체는 설치 완료 기록이 아닙니다.
 
 ## What you see — 화면
 
@@ -31,12 +31,14 @@ Claude Code와 Codex 잔여량을 하단에서 함께 보고, 부족해지면 �
 - `mods/context-bridge/main.js`가 하단 요약과 상세·인계 확인 대화상자를 그립니다. 기본 props의 `node`와 `helper`는 설치 시 절대 경로입니다. 기존 인계 확인에서 원본·대상·폴더·보존 범위를 검토하는 흐름은 유지합니다.
 - `ui-logic.js`는 사용량 신선도·주기별 알림·로컬 터미널 후보를 판단합니다. `mod.json`의 `place: "none"`으로 자동 도킹하지 않고 레이아웃 block에서 배치합니다.
 - `herdr`의 `panes`, `spaces`, `agents`, `exec`, `props`, `theme`, `shared`, `setShared`, `notify`, `openOverlay`, `closeOverlay`, `nextCommand`를 사용합니다. UI 타이머와 비동기 작업은 View context에서 실행합니다.
-- Node helper가 `hc ls --json`, `codex app-server`, 읽기용 Git 명령을 호출합니다. 인계는 `herdr-app do tab.new`에 작업 폴더와 argv를 전달합니다. 대상 Codex에는 `--no-daemon`을 사용하고 승인·샌드박스 우회 플래그를 추가하지 않습니다.
-- 설치 대상은 개인 mod/helper, 복제 레이아웃, Claude statusLine/hooks와 Codex hooks입니다. 상태와 기록은 `~/.local/state/herdr-context-bridge`에 둡니다.
+- Node 기본 모듈만 사용하는 helper가 `hc ls --json`, `codex app-server`, 읽기용 Git 명령을 호출합니다. 인계는 `herdr-app do tab.new`에 작업 폴더와 Node 실행기의 argv를 전달해 인자와 환경 변수를 보존합니다. 대상 Codex에는 `--no-daemon`을 사용하고 승인·샌드박스 우회 플래그를 추가하지 않습니다. Windows CLI는 `.exe`·`.com`과 표준 npm `.cmd` shim의 실제 대상을 직접 실행하며 임의의 `.cmd`·`.bat` 실행기는 지원하지 않습니다.
+- 설치 대상은 개인 mod/helper, 복제 레이아웃, Claude statusLine/hooks와 Codex hooks입니다. Herdr 설정은 [공식 `app_dir()`](https://github.com/herdrdev/herdr-app/blob/master/src/mods.rs)의 `HERDR_APP_HOME` → `XDG_CONFIG_HOME/herdr-app` → 사용자 홈의 `.config/herdr-app` 순서를 따릅니다. 상태와 기록은 Windows에서 `USERPROFILE/.local/state/herdr-context-bridge`, macOS에서 `HOME/.local/state/herdr-context-bridge`에 둡니다. POSIX의 0700·0600 mode와 Windows 사용자 프로필의 ACL 권한을 적용받습니다.
 
 ## Watch out — 설치와 운영
 
 [한국어 README의 설치·제거 절차](README.ko.md#설치와-제거)를 따릅니다. `npm run install:mod -- --dry-run`으로 경로를 확인하고 설치 후 `herdr-app check`와 `layout.switch`를 별도로 실행합니다. 원래 레이아웃으로 복귀한 후 제거할 수 있으며 인계 기록은 남습니다.
+
+Windows에서는 Node.js 22.5 이상과 Git for Windows를 준비하고 앱의 `PATH`에서 `node`와 CLI를 찾을 수 있어야 합니다. PowerShell에서 `npm.cmd run install:mod -- --dry-run`, `npm.cmd run install:mod`, `herdr-app check "$env:USERPROFILE/.config/herdr-app/mods/context-bridge"`, `herdr-app do layout.switch --name context-bridge` 순서로 실행합니다. 제거 전에는 `herdr-app do layout.switch --name main`으로 복귀하고 `npm.cmd run uninstall:mod`를 사용합니다. 사용자 경로를 재정의했다면 check 경로도 맞춥니다. 기존 Claude 상태줄은 Git Bash가 있으면 그 셸로, 없으면 PowerShell로 실행하며 AGY는 기본 Windows 명령 셸을 사용합니다.
 
 Claude 카드가 비어 있으면 설치 후 API 응답과 statusLine sample이 아직 없는지 확인합니다. Codex hooks는 `/hooks`의 정상 신뢰 절차가 필요할 수 있습니다. 이미 실행 중인 CLI는 새 설정을 즉시 반영하지 않을 수 있으므로 후보를 직접 연결합니다. 앱에서 CLI를 찾지 못하면 앱이 상속한 `PATH`를 확인하세요.
 
@@ -46,7 +48,7 @@ Claude 카드가 비어 있으면 설치 후 API 응답과 statusLine sample이 
 
 ## Done when — 확인 절차
 
-아래는 완료를 판단할 확인 항목이며, 실제 환경에서 확인한 결과를 뜻하지 않습니다.
+아래는 완료를 판단할 확인 항목이며, 실제 환경에서 확인한 결과를 뜻하지 않습니다. CI는 `macos-latest`와 `windows-latest`를 대상으로 구성되어 있습니다. 이번 변경은 macOS에서 검증했으며 Windows 실기 Herdr 앱은 아직 검증하지 않았습니다.
 
 1. 프로젝트에서 `npm test`, `npm run check`가 통과합니다.
 2. `herdr-app check ~/.config/herdr-app/mods/context-bridge`가 통과하고 네 언어에서 하단 요약·상세창·인계 확인이 잘리지 않습니다. 상세창 닫기·Escape 후 터미널 크기가 유지되고, 기존 상태바와 요약이 함께 보이며, 재설치 후 우측 패널이나 중복 요약이 남지 않습니다.

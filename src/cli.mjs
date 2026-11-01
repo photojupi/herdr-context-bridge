@@ -20,6 +20,7 @@ try {
     case 'handoff':result=await startHandoff(json());break;
     case 'job':await reconcileJobs();result=await readJson(join(stateDir,'jobs',safeId(args[0])+'.json'));if(!result)throw new Error(t('인계 작업을 찾을 수 없습니다.'));if(result.error)result.error=localizeMessage(result.error);break;
     case 'worker':await runJob(args[0]);break;
+    case 'launch':process.exitCode=await (await import('./launch.mjs')).launchTarget(...args);break;
     case 'capture':await (await import('./capture.mjs')).capture(args[0],JSON.parse(await stdin()),{stateDir,env:process.env});break;
     case 'statusline':{
       const output=await (await import('./capture.mjs')).runStatusLine(await stdin(),{provider:args[0]||'claude',stateDir,env:process.env});

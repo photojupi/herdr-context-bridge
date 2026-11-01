@@ -2,7 +2,7 @@ import {t} from './i18n.mjs';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, mkdtemp, open, readdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
@@ -170,7 +170,7 @@ async function gitCommand(cwd, args, destination) {
 
 export async function createBundle(source, { stateDir, codexClient, codexOptions = {}, now = Date.now, claudeHome = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), codexHome = process.env.CODEX_HOME || join(homedir(), '.codex') } = {}) {
   if (!source || !['claude', 'codex'].includes(source.provider) || !/^[A-Za-z0-9_-]+$/.test(source.id)) throw new Error(t('provider 또는 session id 식별자가 올바르지 않습니다'));
-  if (typeof source.cwd !== 'string' || !source.cwd.startsWith('/')) throw new Error(t('절대 작업 경로가 필요합니다'));
+  if (typeof source.cwd !== 'string' || !isAbsolute(source.cwd)) throw new Error(t('절대 작업 경로가 필요합니다'));
   if (!stateDir) { const { stateDirectory } = await import('./storage.mjs'); stateDir = stateDirectory(); }
   if (source.provider === 'codex' && !codexClient) {
     const { withCodex } = await import('./codex.mjs');

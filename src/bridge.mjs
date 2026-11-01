@@ -1,14 +1,14 @@
 import {t,localizeMessage} from './i18n.mjs';
 import {execFile,spawn} from 'node:child_process';
 import {promisify} from 'node:util';
-import {open,mkdir,unlink,access} from 'node:fs/promises';
-import {constants} from 'node:fs';
-import {join,delimiter} from 'node:path';
+import {open,mkdir,unlink} from 'node:fs/promises';
+import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID,createHash} from 'node:crypto';
 import {atomicJson,readJson,jsonRecords,stateDirectory,safeId} from './storage.mjs';
 import {validateConfig,decideHandoff} from './policy.mjs';
 import {hasAccountObservation,localizeQuota} from './quota.mjs';
+import {resolveCommand} from './commands.mjs';
 
 const execFileAsync=promisify(execFile);
 const cliPath=fileURLToPath(new URL('./cli.mjs',import.meta.url));
@@ -20,7 +20,8 @@ function parseKey(key) {
   safeId(id); return {provider,id};
 }
 export async function commandJson(binary,args) {
-  const {stdout}=await execFileAsync(binary,args,{timeout:20000,maxBuffer:8*1024*1024});
+  const command=await resolveCommand(binary);
+  const {stdout}=await execFileAsync(command.file,[...command.args,...args],{timeout:20000,maxBuffer:8*1024*1024,windowsHide:true});
   const result=JSON.parse(stdout);
   if(result.error) throw new Error(typeof result.error==='string'?result.error:result.error.message);
   return result;
@@ -28,10 +29,7 @@ export async function commandJson(binary,args) {
 export async function liveTerminals() { return (await commandJson('hc',['ls','--json'])).terminals || []; }
 export async function liveSpaces() { return (await commandJson('herdr-app',['ls'])).spaces || []; }
 export async function installedCli(name) {
-  for(const dir of (process.env.PATH||'').split(delimiter)) {
-    try { await access(join(dir,name),constants.X_OK); return true; } catch {}
-  }
-  return false;
+  try { await resolveCommand(name); return true; } catch { return false; }
 }
 async function configAt(dir) { return validateConfig(await readJson(join(dir,'config.json'),{})); }
 export async function saveConfig(input,{stateDir=stateDirectory()}={}) {
@@ -137,7 +135,7 @@ export async function startHandoff(input,options={}) {
     if(job.automatic) await atomicJson(join(dir,'auto-attempts',`${source.provider}-${source.id}.json`),{jobId:id});
     if(options.spawnWorker) await options.spawnWorker(id);
     else {
-      const child=spawn(process.execPath,[cliPath,'worker',id],{detached:true,stdio:'ignore',env:{...process.env,HERDR_BRIDGE_STATE_DIR:dir}});
+      const child=spawn(process.execPath,[cliPath,'worker',id],{detached:true,stdio:'ignore',windowsHide:true,env:{...process.env,HERDR_BRIDGE_STATE_DIR:dir}});
       await new Promise((resolve,reject)=>{child.once('spawn',resolve);child.once('error',reject);}); child.unref();
     }
     return {jobId:id};
@@ -168,7 +166,7 @@ export async function runJob(id,options={}) {
     if((await readJson(path))?.status!=='preparing')throw new Error(t('중단된 인계 작업입니다.'));
     job.launchStartedAt=Date.now();
     await atomicJson(path,job);
-    const args={name:t('{provider} · 인계 {id}',{provider:job.target==='codex'?'Codex':'Claude',id:id.slice(0,8)}),folder:source.cwd,argv:['/usr/bin/env',`HERDR_BRIDGE_AUTO_ORIGIN=${job.automatic?'1':'0'}`,`HERDR_BRIDGE_JOB_ID=${id}`,job.target,...(job.target==='codex'?['--no-daemon']:[]),bundle.prompt]};
+    const args={name:t('{provider} · 인계 {id}',{provider:job.target==='codex'?'Codex':'Claude',id:id.slice(0,8)}),folder:source.cwd,argv:[process.execPath,cliPath,'launch',job.target,id,job.automatic?'1':'0',bundle.prompt]};
     if(job.space) args.space=job.space;
     const result=await (options.launch|| (args=>commandJson('herdr-app',['do','tab.new',JSON.stringify(args)])))(args);
     if(!result?.terminal) throw new Error(t('새 터미널 생성 결과를 확인할 수 없습니다.'));

@@ -2,6 +2,7 @@ import {t as message} from '../src/i18n.mjs';
 import test from 'node:test';
 import {quotaHealth} from '../src/policy.mjs';
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
 
 test('explicit ordinary usage denial cannot be inferred available from percentages',()=>{
   const now=Date.now();
@@ -70,7 +71,7 @@ test('official account ID and individual spend limit are preserved without token
 });
 
 test('readCodexQuota handles official RPC and returns sanitized unknown on errors', async () => {
-  const args = [new URL('./fixtures/quota/fake-codex.mjs', import.meta.url).pathname];
+  const args = [fileURLToPath(new URL('./fixtures/quota/fake-codex.mjs', import.meta.url))];
   const quota = await readCodexQuota({ binary: process.execPath, args, env: { ...process.env, FAKE_CODEX_MODE: 'quota' }, timeoutMs: 1000 });
   assert.equal(quota.provider, 'codex');
   assert.equal(quota.accountObserved, true);

@@ -4,8 +4,9 @@ import {execFileSync} from 'node:child_process';
 import {mkdtemp, readdir, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 
-const cli=new URL('../src/cli.mjs',import.meta.url).pathname;
+const cli=fileURLToPath(new URL('../src/cli.mjs',import.meta.url));
 test('locale command returns only device locale without creating state',async t=>{
   const home=await mkdtemp(join(tmpdir(),'bridge-locale-'));
   t.after(()=>rm(home,{recursive:true,force:true}));

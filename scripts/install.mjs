@@ -1,17 +1,16 @@
 import {readFile,writeFile,mkdir,readdir,unlink} from 'node:fs/promises';
-import {homedir} from 'node:os';
 import {join,dirname,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
-import {atomicJson,readJson} from '../src/storage.mjs';
+import {atomicJson,readJson,homeDirectory} from '../src/storage.mjs';
 import {t} from '../src/i18n.mjs';
 
 const project=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const digest=value=>createHash('sha256').update(value).digest('hex');
 const shellQuote=value=>"'"+value.replaceAll("'","'\\''")+"'";
 function paths(options={}) {
-  const home=options.home||process.env.HOME||homedir();
-  return {home,appHome:options.appHome||process.env.HERDR_APP_HOME||join(home,'.config/herdr-app'),stateDir:options.stateDir||process.env.HERDR_BRIDGE_STATE_DIR||join(home,'.local/state/herdr-context-bridge'),projectDir:options.projectDir||project};
+  const env=options.env||process.env,home=options.home||homeDirectory(env,options.platform);
+  return {home,appHome:options.appHome||env.HERDR_APP_HOME||join(env.XDG_CONFIG_HOME||join(home,'.config'),'herdr-app'),stateDir:options.stateDir||env.HERDR_BRIDGE_STATE_DIR||join(home,'.local/state/herdr-context-bridge'),projectDir:options.projectDir||project};
 }
 async function maybe(path) {try{return await readFile(path);}catch(e){if(e.code==='ENOENT')return null;throw e;}}
 async function filesUnder(root,prefix='') {
@@ -59,7 +58,12 @@ export async function install(options={}) {
   const modDir=join(appHome,'mods/context-bridge');
   if(!previous && await maybe(join(modDir,'main.js'))) throw new Error(t('같은 이름의 mod가 이미 있습니다. 덮어쓰지 않았습니다.'));
   const helper=join(modDir,'helper/cli.mjs');
-  const command=mode=>`${shellQuote(process.execPath)} ${shellQuote(helper)} ${mode}`;
+  // This bootstrap contains no user path in shell syntax. It works in cmd,
+  // PowerShell and Git Bash; Windows requires node on the provider's PATH.
+  const bootstrap=`const p=Buffer.from('${Buffer.from(helper).toString('base64')}','base64').toString();process.argv.splice(1,0,p);import(require('node:url').pathToFileURL(p).href)`;
+  const command=mode=>(options.platform??process.platform)==='win32'
+    ? `node -e "${bootstrap}" ${mode}`
+    : `${shellQuote(process.execPath)} ${shellQuote(helper)} ${mode}`;
   const claudePath=join(home,'.claude/settings.json'),codexPath=join(home,'.codex/hooks.json'),agyPath=join(home,'.gemini/antigravity-cli/settings.json');
   const claude=await readJson(claudePath,{}),codex=await readJson(codexPath,{}),agy=await readJson(agyPath,{});
   const originalClaude=previous?.originalClaude ?? structuredClone(claude);

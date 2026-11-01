@@ -2,7 +2,7 @@
 
 [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
 
-这是一个本地 macOS 工具，用于在 Herdr 中查看 Claude Code 和 Codex 账户的剩余额度，并在额度不足时，将工作记录交接到同一工作目录下的新终端。默认模式为 **每次批准**。自动交接必须由用户针对选定的来源会话明确启用。
+这是一个支持 macOS 和原生 Windows 的本地工具，用于在 Herdr 中查看 Claude Code 和 Codex 账户的剩余额度，并在额度不足时，将工作记录交接到同一工作目录下的新终端。默认模式为 **每次批准**。自动交接必须由用户针对选定的来源会话明确启用。
 
 仅使用 Node.js 内置模块，无需单独的 Web 服务器或安装额外软件包。
 
@@ -18,20 +18,23 @@
 
 ## 支持语言
 
-底部摘要、详情窗口和 helper 支持英语（`en`）、韩语（`ko`）、日语（`ja`）及中国大陆简体中文（`zh-CN`）。使用 macOS 首选语言列表中的第一种语言；不支持的语言（包括繁体中文）会回退为英语，不会跳过不支持的第一种语言而选择列表中的其他语言。只有无法读取 macOS 语言设置时，才依次检查 `LC_ALL`、`LC_MESSAGES`、`LANG` 和 `Intl`。没有单独的手动语言设置。`node src/cli.mjs locale` 以 JSON（例如 `{ "locale": "zh-CN" }`）返回检测到的语言，不执行自动交接策略评估。
+底部摘要、详情窗口和 helper 支持英语（`en`）、韩语（`ko`）、日语（`ja`）及中国大陆简体中文（`zh-CN`）。macOS 使用首选语言列表中的第一种语言；不支持的语言（包括繁体中文）会回退为英语，不会跳过不支持的第一种语言而选择列表中的其他语言。在 Windows 上，或无法读取 macOS 语言设置时，依次检查 `LC_ALL`、`LC_MESSAGES`、`LANG` 和 `Intl`。不会额外调用 Windows 首选语言 API。没有单独的手动语言设置。`node src/cli.mjs locale` 以 JSON（例如 `{ "locale": "zh-CN" }`）返回检测到的语言，不执行自动交接策略评估。
 
 ## 环境要求
 
-- macOS、Herdr 应用，以及 `herdr-app` 和 `hc` 命令。本工具面向 Herdr 0.1.10 编写。
-- Node.js 22.5 或更高版本、`git`，以及交接所需提供方的 `claude`、`codex` CLI。
+- macOS 或原生 Windows、Herdr 应用，以及 `herdr-app` 和 `hc` 命令。本工具面向 Herdr 0.1.10 编写。
+- Node.js 22.5 或更高版本、`git`（Windows 使用 Git for Windows），以及交接所需提供方的 `claude`、`codex` CLI。Windows 要求应用的 `PATH` 中包含 `node`。
 - 各 CLI 中已正常登录的当前本地配置。应用启动的 helper 也必须能通过其 `PATH` 找到对应 CLI。
 - 支持 `app-server`、账户用量 API 和 full thread history API 的 Codex 版本。为 Codex 新建目标标签页时使用 `--no-daemon`。
+- Windows CLI 支持原生 `.exe`、`.com` 及标准 npm `.cmd` shim，并直接运行 shim 对应的 Node 或原生目标。为避免 shell 展开改变提示词参数，不支持将任意 `.cmd`、`.bat` 脚本用作 CLI 启动器。
+
+CI 已配置 `macos-latest` 和 `windows-latest`。本次变更在 macOS 上开发和验证；尚未在 Windows 实机上验证 Herdr 桌面应用的运行情况。
 
 本工具不支持远程 Herdr 机器，也不支持同时管理多个认证配置。切换登录账户前，请先选择 **每次批准**，再重新检查用量与会话绑定。
 
 ## 安装与卸载
 
-先启动一次 Herdr，生成默认布局，然后克隆仓库并安装：
+先启动一次 Herdr，生成默认布局，然后克隆仓库并安装。macOS 使用以下命令：
 
 ```sh
 git clone https://github.com/photojupi/herdr-context-bridge.git
@@ -42,9 +45,24 @@ herdr-app check ~/.config/herdr-app/mods/context-bridge
 herdr-app do layout.switch '{"name":"context-bridge"}'
 ```
 
-安装程序会将个人 mod 和 helper 复制到 `~/.config/herdr-app/mods/context-bridge/`，并在默认 `main` 布局的副本 `layouts/context-bridge.json` 中，将额度摘要放在现有底部状态栏的同一行。保持状态栏原有高度；没有状态栏的布局会新增底部一行。重新安装会将原右侧面板替换为此布局，不会重复添加摘要。不会修改内置 mod 或原始 `main.json`。安装命令本身不会切换当前显示的布局。
+Windows 使用 PowerShell：
+
+```powershell
+git clone https://github.com/photojupi/herdr-context-bridge.git
+cd herdr-context-bridge
+npm.cmd run install:mod -- --dry-run
+npm.cmd run install:mod
+herdr-app check "$env:USERPROFILE/.config/herdr-app/mods/context-bridge"
+herdr-app do layout.switch --name context-bridge
+```
+
+上述路径假定使用默认 Herdr 配置目录。安装程序遵循 [Herdr 的 `app_dir()`](https://github.com/herdrdev/herdr-app/blob/master/src/mods.rs)，依次使用 `HERDR_APP_HOME`、`XDG_CONFIG_HOME/herdr-app`，最后是 Windows 的 `USERPROFILE/.config/herdr-app` 或 macOS 的 `HOME/.config/herdr-app`。若设置了覆盖路径，`herdr-app check` 也应使用该目录。本文中的 `~` 表示相应的用户主目录。
+
+默认情况下，安装程序会将个人 mod 和 helper 复制到 `~/.config/herdr-app/mods/context-bridge/`，并在默认 `main` 布局的副本 `layouts/context-bridge.json` 中，将额度摘要放在现有底部状态栏的同一行。保持状态栏原有高度；没有状态栏的布局会新增底部一行。重新安装会将原右侧面板替换为此布局，不会重复添加摘要。不会修改内置 mod 或原始 `main.json`。安装命令本身不会切换当前显示的布局。
 
 安装程序会在 Claude 的 `~/.claude/settings.json` 中添加状态栏 wrapper 和 hooks，并在 Codex 的 `~/.codex/hooks.json` 中添加 hooks。保留已有 hooks。原有 Claude 状态栏命令仍会收到原始 stdin，其输出和退出码也会保留。首次配置备份和变更文件列表保存在 `~/.local/state/herdr-context-bridge/install.json`。如果用户在重新安装前修改了状态栏命令，wrapper 会改用该新命令作为原始命令，同时保留首次文件备份。
+
+在 Windows 上，原有 Claude 状态栏命令优先使用 Git Bash，没有 Git Bash 时使用 PowerShell；AGY 保持默认 Windows 命令 shell。交接改用 Node 启动器保留参数和环境变量，无需 `/usr/bin/env`。
 
 Codex 可能要求通过 `/hooks` 等 CLI 正常流程信任已安装的 hooks。已有会话可能不会立即加载新 hooks，请使用下文的手动会话绑定。仅完成安装不会产生 Claude 用量数据；对应会话在 API 响应后收到状态栏输入，才会显示用量。
 
@@ -54,6 +72,14 @@ Codex 可能要求通过 `/hooks` 等 CLI 正常流程信任已安装的 hooks�
 herdr-app do layout.switch '{"name":"main"}'
 npm run uninstall:mod -- --dry-run
 npm run uninstall:mod
+```
+
+Windows 使用以下命令：
+
+```powershell
+herdr-app do layout.switch --name main
+npm.cmd run uninstall:mod -- --dry-run
+npm.cmd run uninstall:mod
 ```
 
 卸载程序会移除添加的 hooks 和状态栏 wrapper，恢复原有命令。安装后修改的状态栏选项及无关设置会保留。其他受管理文件也仅在内容与安装时一致的情况下才会被删除或恢复；用户修改过的文件会保留，并在结果的 `preserved` 中列出。**卸载后仍保留交接原文、工作状态和备份。** 最后一次安装记录会保存在同一数据目录的 `last-install.json` 中。
@@ -108,7 +134,7 @@ npm run uninstall:mod
 
 ## 存储位置与命令
 
-默认数据目录为 `~/.local/state/herdr-context-bridge`。配置、用量缓存、会话绑定、交接 jobs、锁、`bundles/` 和安装备份均保存在源代码仓库之外。新建数据目录权限为 0700，文件权限为 0600。bundle 包含对话和工具结果，分享前请检查内容。没有自动保留期限或删除功能。
+默认数据目录在 Windows 上为 `USERPROFILE/.local/state/herdr-context-bridge`，在 macOS 上为 `HOME/.local/state/herdr-context-bridge`。配置、用量缓存、会话绑定、交接 jobs、锁、`bundles/` 和安装备份均保存在源代码仓库之外。POSIX 系统中新建数据目录权限为 0700，文件权限为 0600；Windows 使用用户配置目录的 ACL 权限。bundle 包含对话和工具结果，分享前请检查内容。没有自动保留期限或删除功能。
 
 | 命令 | 用途 |
 | --- | --- |
@@ -128,12 +154,13 @@ npm run uninstall:mod
 | `node src/cli.mjs handoff '<JSON>'` | 使用 `sourceKey`、`target`、`automatic:false` 及可选 `space` 请求手动交接 |
 | `node src/cli.mjs job <jobId>` | 查询指定交接任务 |
 
-公开的查询、配置和交接命令均输出 JSON；出错时返回 `{ "error": "…" }` 和非零退出码。`capture`、`statusline` 和 `worker` 是已安装 hooks 与 helper 使用的内部命令。`status` 在自动模式下可能触发执行，请勿将其视为纯只读查询。
+公开的查询、配置和交接命令均输出 JSON；出错时返回 `{ "error": "…" }` 和非零退出码。`capture`、`statusline`、`worker` 和 `launch` 是已安装 hooks 与 helper 使用的内部命令。`status` 在自动模式下可能触发执行，请勿将其视为纯只读查询。
 
 | 环境变量 | 用途 |
 | --- | --- |
 | `HERDR_BRIDGE_STATE_DIR` | 修改 helper 数据路径。建议用于开发与隔离测试；安装程序、应用和 hooks 必须使用相同值 |
-| `HERDR_APP_HOME` | 修改 Herdr 安装目标配置目录，默认为 `~/.config/herdr-app` |
+| `HERDR_APP_HOME` | 修改 Herdr 安装目标配置目录，优先于 `XDG_CONFIG_HOME` |
+| `XDG_CONFIG_HOME` | 未设置 `HERDR_APP_HOME` 时，使用其 `herdr-app` 子目录作为 Herdr 配置目录 |
 | `HC_TERMINAL_ID` | Herdr 传给 hooks 的来源终端标识 |
 
 安装程序针对默认的 `~/.claude` 和 `~/.codex` 配置目录。使用多个独立 CLI 认证或配置目录的部署方式，不在此安装流程的支持范围内。

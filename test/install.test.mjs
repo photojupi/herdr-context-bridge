@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,access,unlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join,resolve} from 'node:path';
+import {join,resolve,dirname} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {install,uninstall} from '../scripts/install.mjs';
+const printCommand=value=>`node -e "process.stdout.write('${value}')"`;
 
 async function fixture(layout={id:'root',type:'row',children:[{id:'terminal',type:'block',content:{tab:'active'}}]}){
   const home=await mkdtemp(join(tmpdir(),'bridge-install-'));
@@ -93,6 +94,37 @@ test('dry run does not change user files',async()=>{
   await assert.rejects(access(join(o.appHome,'mods/context-bridge/main.js')));
 });
 
+test('Windows hooks run through a shell with special characters in the installed path',async()=>{
+  const o=await fixture();
+  o.appHome=join(o.home,"한글 app %PATH% ! & ' folder");
+  await mkdir(join(o.appHome,'layouts'),{recursive:true});
+  await writeFile(join(o.appHome,'layouts/main.json'),JSON.stringify(workspaceLayout));
+  await install({...o,platform:'win32'});
+  const settings=JSON.parse(await readFile(join(o.home,'.claude/settings.json'),'utf8'));
+  const command=settings.hooks.SessionStart.at(-1).hooks[0].command;
+  assert.match(command,/^node -e /);
+  const {execSync}=await import('node:child_process');
+  execSync(command,{input:JSON.stringify({session_id:'windows-hook',cwd:o.home,hook_event_name:'SessionStart'}),env:{...process.env,HERDR_BRIDGE_STATE_DIR:o.stateDir,HC_TERMINAL_ID:'windows-terminal'}});
+  const captured=JSON.parse(await readFile(join(o.stateDir,'sessions/claude-windows-hook.json'),'utf8'));
+  assert.equal(captured.cwd,o.home);
+  assert.equal(captured.terminalId,'windows-terminal');
+  await install({...o,platform:'win32'});
+  await uninstall(o);
+  assert.deepEqual(JSON.parse(await readFile(join(o.home,'.claude/settings.json'),'utf8')),o.original);
+});
+
+test('installer follows Windows profile and Herdr XDG home with explicit overrides taking precedence',async()=>{
+  const o=await fixture(),xdg=join(o.home,'xdg'),appHome=join(xdg,'herdr-app');
+  await mkdir(join(appHome,'layouts'),{recursive:true});
+  await writeFile(join(appHome,'layouts/main.json'),JSON.stringify(workspaceLayout));
+  const env={USERPROFILE:o.home,HOME:join(o.home,'wrong-home'),XDG_CONFIG_HOME:xdg};
+  const report=await install({platform:'win32',env,dryRun:true});
+  assert.ok(report.files.includes(join(appHome,'mods/context-bridge/main.js')));
+  assert.ok(report.files.includes(join(o.home,'.claude/settings.json')));
+  const explicit=await install({platform:'win32',env:{...env,HERDR_APP_HOME:o.appHome},dryRun:true});
+  assert.ok(explicit.files.includes(join(o.appHome,'mods/context-bridge/main.js')));
+});
+
 test('AGY options without a command keep the built-in status line when adding a wrapper',async()=>{
   const o=await fixture(),path=join(o.home,'.gemini/antigravity-cli/settings.json');
   await mkdir(join(o.home,'.gemini/antigravity-cli'),{recursive:true});
@@ -113,7 +145,7 @@ test('installed localization modules load and locale inspection leaves state unt
   ]) assert.equal(await readFile(installed,'utf8'),await readFile(source,'utf8'));
   const unusedState=join(o.home,'locale-only-state');
   const output=execFileSync(process.execPath,[join(mod,'helper/cli.mjs'),'locale'],{
-    encoding:'utf8',env:{HOME:o.home,PATH:'',LANG:'en_US.UTF-8',HERDR_BRIDGE_STATE_DIR:unusedState},
+    encoding:'utf8',env:{...process.env,HOME:o.home,USERPROFILE:o.home,PATH:'',LANG:'en_US.UTF-8',HERDR_BRIDGE_STATE_DIR:unusedState},
   });
   assert.deepEqual(Object.keys(JSON.parse(output)),['locale']);
   assert.ok(['en','ko','ja','zh-CN'].includes(JSON.parse(output).locale));
@@ -173,7 +205,7 @@ test('reinstall wraps the latest user command while retaining the initial backup
   const path=join(o.home,'.claude/settings.json');
   const initial=JSON.parse(await readFile(join(o.stateDir,'install.json'),'utf8'));
   const settings=JSON.parse(await readFile(path,'utf8'));
-  settings.statusLine={type:'command',command:'printf replacement',padding:9};
+  settings.statusLine={type:'command',command:printCommand('replacement'),padding:9};
   settings.hooks.Stop.push({hooks:[{type:'command',command:'printf later-hook'}]});
   await writeFile(path,JSON.stringify(settings));
   await install(o);
@@ -203,7 +235,7 @@ test('reinstall respects a removed statusLine instead of reviving the initial co
 test('AGY install wraps the official statusLine while preserving disabled options and restores the latest command',async()=>{
   const o=await fixture(),path=join(o.home,'.gemini/antigravity-cli/settings.json');
   await mkdir(join(o.home,'.gemini/antigravity-cli'),{recursive:true});
-  const original={customOption:'kept',statusLine:{type:'command',command:'printf agy-original',padding:2,enabled:false,stack_with_default:false}};
+  const original={customOption:'kept',statusLine:{type:'command',command:printCommand('agy-original'),padding:2,enabled:false,stack_with_default:false}};
   await writeFile(path,JSON.stringify(original));
   await install(o);
   let settings=JSON.parse(await readFile(path,'utf8'));
@@ -215,7 +247,7 @@ test('AGY install wraps the official statusLine while preserving disabled option
   let saved=JSON.parse(await readFile(join(o.stateDir,'install.json'),'utf8'));
   assert.deepEqual(saved.originalAgyStatusLine,original.statusLine);
   const output=execFileSync(process.execPath,[join(o.appHome,'mods/context-bridge/helper/cli.mjs'),'statusline','agy'],{
-    input:JSON.stringify({quota:{'gemini-weekly':{remaining_fraction:0.5}}}),encoding:'utf8',env:{HOME:o.home,PATH:'',HERDR_BRIDGE_STATE_DIR:o.stateDir},
+    input:JSON.stringify({quota:{'gemini-weekly':{remaining_fraction:0.5}}}),encoding:'utf8',env:{...process.env,HOME:o.home,USERPROFILE:o.home,PATH:dirname(process.execPath),HERDR_BRIDGE_STATE_DIR:o.stateDir},
   });
   assert.equal(output,'agy-original');
   assert.equal(JSON.parse(await readFile(join(o.stateDir,'quota-agy.json'),'utf8')).accountObserved,true);

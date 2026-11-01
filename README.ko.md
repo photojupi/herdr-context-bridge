@@ -2,7 +2,7 @@
 
 [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
 
-Herdr에서 Claude Code·Codex·AGY(Antigravity CLI)의 계정 잔여량을 확인하는 로컬 macOS 도구입니다. Claude/Codex는 한도가 부족해지면 같은 작업 폴더의 새 터미널로 작업 기록을 인계할 수 있습니다. 기본값은 **매번 승인**입니다. 자동 인계는 사용자가 선택한 원본 세션에 직접 켜야 합니다.
+Herdr에서 Claude Code·Codex·AGY(Antigravity CLI)의 계정 잔여량을 확인하는 로컬 macOS·Windows 네이티브 도구입니다. Claude/Codex는 한도가 부족해지면 같은 작업 폴더의 새 터미널로 작업 기록을 인계할 수 있습니다. 기본값은 **매번 승인**입니다. 자동 인계는 사용자가 선택한 원본 세션에 직접 켜야 합니다.
 
 Node.js 기본 모듈만 사용하며 별도 웹 서버나 패키지 설치는 필요하지 않습니다.
 
@@ -14,20 +14,23 @@ Node.js 기본 모듈만 사용하며 별도 웹 서버나 패키지 설치는 �
 
 ## 지원 언어
 
-하단 요약·상세창과 helper는 영어(`en`), 한국어(`ko`), 일본어(`ja`), 중국 본토 간체 중국어(`zh-CN`)를 지원합니다. macOS의 선호 언어 목록에서 첫 번째 언어를 사용하며, 지원하지 않는 언어와 번체 중국어는 영어로 표시합니다. 지원하지 않는 첫 번째 언어를 건너뛰고 목록의 다른 언어를 고르지는 않습니다. macOS 언어 설정을 읽을 수 없을 때만 `LC_ALL`, `LC_MESSAGES`, `LANG`, `Intl` 순서로 확인합니다. 별도 수동 언어 설정은 없습니다. `node src/cli.mjs locale`은 자동 정책을 실행하지 않고 감지된 언어를 `{ "locale": "ko" }` 같은 JSON으로 조회합니다.
+하단 요약·상세창과 helper는 영어(`en`), 한국어(`ko`), 일본어(`ja`), 중국 본토 간체 중국어(`zh-CN`)를 지원합니다. macOS에서는 선호 언어 목록의 첫 번째 언어를 사용하며, 지원하지 않는 언어와 번체 중국어는 영어로 표시합니다. 지원하지 않는 첫 번째 언어를 건너뛰고 목록의 다른 언어를 고르지는 않습니다. Windows를 사용하거나 macOS 언어 설정을 읽을 수 없으면 `LC_ALL`, `LC_MESSAGES`, `LANG`, `Intl` 순서로 확인합니다. 별도의 Windows 선호 언어 API는 조회하지 않습니다. 수동 언어 설정은 없습니다. `node src/cli.mjs locale`은 자동 정책을 실행하지 않고 감지된 언어를 `{ "locale": "ko" }` 같은 JSON으로 조회합니다.
 
 ## 준비
 
-- macOS, Herdr 앱과 `herdr-app`·`hc` 명령. Herdr 0.1.10을 대상으로 작성했습니다.
-- Node.js 22.5 이상, `git`, 인계할 제공자의 `claude`·`codex` CLI.
+- macOS 또는 네이티브 Windows, Herdr 앱과 `herdr-app`·`hc` 명령. Herdr 0.1.10을 대상으로 작성했습니다.
+- Node.js 22.5 이상, `git`(Windows에서는 Git for Windows), 인계할 제공자의 `claude`·`codex` CLI. Windows에서는 앱의 `PATH`에 `node`가 있어야 합니다.
 - 각 CLI에서 정상적으로 로그인한 현재 로컬 프로필. 앱이 실행하는 helper의 `PATH`에서도 CLI를 찾을 수 있어야 합니다.
 - Codex의 `app-server`, 계정 사용량 API와 full thread history API를 지원하는 버전. Codex 대상으로 새 탭을 열 때 `--no-daemon`을 사용합니다.
+- Windows CLI는 네이티브 `.exe`·`.com`과 표준 npm `.cmd` shim을 지원하며, shim의 Node 또는 네이티브 대상을 직접 실행합니다. 프롬프트 인자가 셸 확장으로 바뀌지 않도록 임의의 `.cmd`·`.bat` 셸 스크립트는 CLI 실행기로 지원하지 않습니다.
+
+CI는 `macos-latest`와 `windows-latest`를 대상으로 구성되어 있습니다. 이번 변경은 macOS에서 개발·검증했으며 실제 Windows 기기의 Herdr 앱 동작은 아직 검증하지 않았습니다.
 
 원격 Herdr 머신과 여러 인증 프로필을 동시에 관리하는 기능은 포함하지 않습니다. 로그인 계정을 바꿀 때는 먼저 **매번 승인**으로 전환하고 사용량과 세션 연결을 다시 확인하세요.
 
 ## 설치와 제거
 
-Herdr를 한 번 실행해 기본 레이아웃을 만든 뒤 저장소를 복제하고 설치합니다.
+Herdr를 한 번 실행해 기본 레이아웃을 만든 뒤 저장소를 복제하고 설치합니다. macOS에서는 다음을 실행합니다.
 
 ```sh
 git clone https://github.com/photojupi/herdr-context-bridge.git
@@ -38,9 +41,24 @@ herdr-app check ~/.config/herdr-app/mods/context-bridge
 herdr-app do layout.switch '{"name":"context-bridge"}'
 ```
 
-설치기는 개인 mod와 helper를 `~/.config/herdr-app/mods/context-bridge/`에 복사하고, 기본 `main` 레이아웃을 복제한 `layouts/context-bridge.json`의 기존 하단 상태바 옆에 잔여량 요약을 배치합니다. 기존 상태바 높이는 유지하며, 상태바가 없는 레이아웃에는 하단 한 줄을 추가합니다. 재설치하면 기존 우측 패널을 이 구성으로 교체하고 요약을 중복으로 만들지 않습니다. 내장 mod와 원본 `main.json`은 수정하지 않습니다. 설치 명령 자체는 화면 레이아웃을 전환하지 않습니다.
+Windows에서는 PowerShell을 사용합니다.
+
+```powershell
+git clone https://github.com/photojupi/herdr-context-bridge.git
+cd herdr-context-bridge
+npm.cmd run install:mod -- --dry-run
+npm.cmd run install:mod
+herdr-app check "$env:USERPROFILE/.config/herdr-app/mods/context-bridge"
+herdr-app do layout.switch --name context-bridge
+```
+
+위 경로는 기본 Herdr 설정 폴더 기준입니다. 설치기는 [Herdr의 `app_dir()`](https://github.com/herdrdev/herdr-app/blob/master/src/mods.rs)와 같이 `HERDR_APP_HOME`, `XDG_CONFIG_HOME/herdr-app`, Windows의 `USERPROFILE/.config/herdr-app` 또는 macOS의 `HOME/.config/herdr-app` 순서로 선택합니다. 경로를 재정의했다면 `herdr-app check`에도 그 폴더를 사용하세요. 이 문서의 `~`는 해당 사용자 홈 폴더를 뜻합니다.
+
+기본 설정에서 설치기는 개인 mod와 helper를 `~/.config/herdr-app/mods/context-bridge/`에 복사하고, 기본 `main` 레이아웃을 복제한 `layouts/context-bridge.json`의 기존 하단 상태바 옆에 잔여량 요약을 배치합니다. 기존 상태바 높이는 유지하며, 상태바가 없는 레이아웃에는 하단 한 줄을 추가합니다. 재설치하면 기존 우측 패널을 이 구성으로 교체하고 요약을 중복으로 만들지 않습니다. 내장 mod와 원본 `main.json`은 수정하지 않습니다. 설치 명령 자체는 화면 레이아웃을 전환하지 않습니다.
 
 Claude의 `~/.claude/settings.json`에 상태줄 wrapper와 hooks를 추가하고, Codex의 `~/.codex/hooks.json`에 hooks를 추가합니다. 기존 hooks는 유지합니다. 기존 Claude 상태줄 명령에는 원래 stdin을 전달하고 출력과 종료 코드를 유지합니다. 최초 설정 백업과 변경 파일 목록은 `~/.local/state/herdr-context-bridge/install.json`에 저장합니다. 재설치 전 사용자가 상태줄 명령을 바꿨다면 그 새 명령을 wrapper의 원본으로 사용하며 최초 파일 백업은 보존합니다.
+
+Windows에서 원래 Claude 상태줄은 Git Bash가 있으면 해당 셸로, 없으면 PowerShell로 실행합니다. AGY는 기본 Windows 명령 셸을 유지합니다. 인계는 `/usr/bin/env` 대신 Node 실행기를 사용하여 인자와 환경 변수를 보존합니다.
 
 AGY의 `~/.gemini/antigravity-cli/settings.json`에도 상태줄 wrapper를 추가합니다. 기존 명령의 stdin·stdout·stderr·종료 코드와 사용자 옵션을 보존하며, 상태줄이 없었다면 AGY 기본 상태줄 아래에 표시합니다. 명시적으로 꺼 둔 상태줄은 켜지 않습니다. 기존 설치에는 `npm run install:mod`를 다시 실행한 뒤 로그인된 AGY 세션에서 정상 상태줄 데이터가 들어오면 반영됩니다. 테스트 프롬프트를 보낼 필요는 없습니다. 최초 유효 기록 전에는 숨겨지며, **새로고침**은 Claude·AGY가 이미 전달한 데이터를 다시 읽습니다.
 
@@ -52,6 +70,14 @@ Codex에서는 설치한 hooks를 `/hooks` 등 CLI의 정상 절차로 신뢰해
 herdr-app do layout.switch '{"name":"main"}'
 npm run uninstall:mod -- --dry-run
 npm run uninstall:mod
+```
+
+Windows에서는 다음을 실행합니다.
+
+```powershell
+herdr-app do layout.switch --name main
+npm.cmd run uninstall:mod -- --dry-run
+npm.cmd run uninstall:mod
 ```
 
 제거기는 추가한 hooks와 상태줄 wrapper를 걷어 내고 기존 명령을 복원합니다. 설치 후 변경한 상태줄 옵션과 무관한 설정은 유지합니다. 다른 관리 파일도 설치 당시 내용과 같을 때만 제거·복원하며, 사용자가 바꾼 파일은 결과의 `preserved`에 표시하고 남겨 둡니다. **인계 원문·작업 상태·백업은 제거 후에도 보관**합니다. 마지막 설치 기록은 같은 데이터 폴더의 `last-install.json`에 남습니다.
@@ -109,7 +135,7 @@ npm run uninstall:mod
 
 ## 저장 위치와 명령
 
-기본 데이터 위치는 `~/.local/state/herdr-context-bridge`입니다. 설정, 사용량 캐시, 세션 연결, 인계 jobs, 잠금, `bundles/`와 설치 백업을 소스 저장소 밖에 저장합니다. 새 데이터 디렉터리는 0700, 파일은 0600 권한으로 생성합니다. bundle에는 대화·도구 결과가 포함되므로 공유할 때 내용을 확인하세요. 자동 보관 기한이나 삭제 기능은 없습니다.
+기본 데이터 위치는 Windows에서 `USERPROFILE/.local/state/herdr-context-bridge`, macOS에서 `HOME/.local/state/herdr-context-bridge`입니다. 설정, 사용량 캐시, 세션 연결, 인계 jobs, 잠금, `bundles/`와 설치 백업을 소스 저장소 밖에 저장합니다. POSIX에서는 새 데이터 디렉터리를 0700, 파일을 0600 권한으로 생성하며, Windows에서는 사용자 프로필 폴더의 ACL 권한을 적용받습니다. bundle에는 대화·도구 결과가 포함되므로 공유할 때 내용을 확인하세요. 자동 보관 기한이나 삭제 기능은 없습니다.
 
 | 명령 | 용도 |
 | --- | --- |
@@ -129,12 +155,13 @@ npm run uninstall:mod
 | `node src/cli.mjs handoff '<JSON>'` | `sourceKey`, `target`, `automatic:false`, 선택적 `space`로 수동 인계 요청 |
 | `node src/cli.mjs job <jobId>` | 특정 인계 작업 조회 |
 
-공개 조회/설정/인계 명령은 JSON을 출력하고 오류 시 `{ "error": "…" }`와 실패 종료 코드를 반환합니다. `capture`, `statusline`, `worker`는 설치된 hooks와 helper가 사용하는 내부 명령입니다. `status`는 자동 모드에서 실행을 유발할 수 있으므로 순수 조회 전용 명령으로 취급하지 마세요.
+공개 조회/설정/인계 명령은 JSON을 출력하고 오류 시 `{ "error": "…" }`와 실패 종료 코드를 반환합니다. `capture`, `statusline`, `worker`, `launch`는 설치된 hooks와 helper가 사용하는 내부 명령입니다. `status`는 자동 모드에서 실행을 유발할 수 있으므로 순수 조회 전용 명령으로 취급하지 마세요.
 
 | 환경 변수 | 용도 |
 | --- | --- |
 | `HERDR_BRIDGE_STATE_DIR` | helper 데이터 경로 변경. 개발·격리 테스트용으로 권장하며 설치기·앱·hooks에서 같은 값을 사용해야 함 |
-| `HERDR_APP_HOME` | 설치할 Herdr 설정 폴더 변경. 기본 `~/.config/herdr-app` |
+| `HERDR_APP_HOME` | 설치할 Herdr 설정 폴더 변경. `XDG_CONFIG_HOME`보다 우선 |
+| `XDG_CONFIG_HOME` | `HERDR_APP_HOME`이 없을 때 하위 `herdr-app` 폴더를 Herdr 설정 경로로 사용 |
 | `HC_TERMINAL_ID` | Herdr가 hooks에 전달하는 원본 터미널 식별자 |
 
 설치기는 기본 `~/.claude`와 `~/.codex` 설정을 대상으로 합니다. CLI의 별도 인증/설정 디렉터리를 여러 개 운용하는 구성은 이 설치 흐름의 지원 범위 밖입니다.
