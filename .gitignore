@@ -1,0 +1,36 @@
+node_modules/
+.superpowers/
+coverage/
+*.log
+.DS_Store
+mods/**/gpui-kit.d.ts
+mods/**/jsconfig.json
+
+# Local development notes (kept on disk, excluded from the public snapshot).
+/PROGRESS.md
+/TASK*-REPORT.md
+/docs/superpowers/
+
+# Local configuration and credentials; examples may be committed.
+.env
+.env.*
+!.env.example
+!.env.*.example
+/.claude/
+/.codex/
+/auth.json
+/credentials.json
+/.credentials.json
+/credentials.toml
+/*.key
+/*.pem
+/*.p12
+/*.pfx
+
+# Local runtime data, conversation exports and private app captures.
+/.bridge-state/
+/.local/
+/state/
+/bundles/
+/*.jsonl
+/herdr-shot*.png

@@ -1,0 +1,15 @@
+{
+  "name": "herdr-context-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Claude/Codex usage monitoring and context handoff for herdr-app",
+  "engines": { "node": ">=22.5.0" },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node scripts/check.mjs",
+    "install:mod": "node scripts/install.mjs",
+    "uninstall:mod": "node scripts/install.mjs --uninstall"
+  }
+}
