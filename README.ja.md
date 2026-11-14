@@ -12,7 +12,7 @@ Node.js の組み込みモジュールのみを使用し、別の Web サーバ�
 
 既存の環境では `npx herdr-context-bridge@latest install` で更新してください。AGY の `~/.gemini/antigravity-cli/settings.json` に wrapper を追加し、元のコマンドの stdin・stdout・stderr・終了コードとユーザー設定を保持します。新規設定は標準ステータスラインの下に表示し、明示的に無効化した設定は変更しません。ログイン済みセッションから通常のデータが届くと表示され、テスト用プロンプトは不要です。**更新**は Claude/AGY の収集済みデータを再読込します。
 
-AGY の公式 [`statusLine` の `quota`](https://antigravity.google/docs/cli/statusline/) を使用します。下部の要約には、ユーザーが代表項目に指定した Gemini4 Argon の `gemini-argon-wtu-weekly` だけを **AGY 週間 XX%** と表示し、ツールチップにモデル名・元の bucket ID・リセット時刻を示します。この bucket がなければ別の週間枠には切り替えず、**AGY 週間 —** と表示します。価格の自動判定ではなく、ユーザーが選んだ代表項目です。詳細と通知では全 bucket の元の名前と残り割合・リセットを維持します。期間の推測や bucket の合算はせず、`remaining_amount` だけの場合は割合を表示しません。無効な bucket は取得不可とします。AGY の通知からも、関連付けたセッションの引き継ぎを確認できます。bucket の値や期間が不明な場合は自動引き継ぎを保留しますが、手動確認は利用できます。
+AGY の公式 [`statusLine` の `quota`](https://antigravity.google/docs/cli/statusline/) を使用します。下部の要約には、Gemini 週間の代表項目である `gemini-weekly`（`gemini-weekly` がない場合のみ従来の `gemini-argon-wtu-weekly`）を **AGY 週間 XX%** と表示し、ツールチップにグループまたはモデル名・元の bucket ID・リセット時刻を示します。どちらの bucket もなければ別の週間枠には切り替えず、**AGY 週間 —** と表示します。価格の自動判定ではなく、ユーザーが選んだ代表項目です。詳細と通知では全 bucket の元の名前と残り割合・リセットを維持します。期間の推測や bucket の合算はせず、`remaining_amount` だけの場合は割合を表示しません。無効な bucket は取得不可とします。AGY の通知からも、関連付けたセッションの引き継ぎを確認できます。bucket の値や期間が不明な場合は自動引き継ぎを保留しますが、手動確認は利用できます。
 
 ![サンプルデータで残量の要約と引き継ぎの詳細を示したイラスト](docs/images/context-bridge-preview.svg)
 

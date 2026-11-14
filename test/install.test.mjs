@@ -103,11 +103,21 @@ test('Windows hooks run through a shell with special characters in the installed
   const settings=JSON.parse(await readFile(join(o.home,'.claude/settings.json'),'utf8'));
   const command=settings.hooks.SessionStart.at(-1).hooks[0].command;
   assert.match(command,/^node -e /);
-  const {execSync}=await import('node:child_process');
+  const agySettings=JSON.parse(await readFile(join(o.home,'.gemini/antigravity-cli/settings.json'),'utf8'));
+  const agyCommand=agySettings.statusLine.command;
+  assert.match(agyCommand,/^node -e \S+ statusline agy$/);
+  assert.doesNotMatch(agyCommand,/"/);
+  const {execSync,spawnSync}=await import('node:child_process');
   execSync(command,{input:JSON.stringify({session_id:'windows-hook',cwd:o.home,hook_event_name:'SessionStart'}),env:{...process.env,HERDR_BRIDGE_STATE_DIR:o.stateDir,HC_TERMINAL_ID:'windows-terminal'}});
   const captured=JSON.parse(await readFile(join(o.stateDir,'sessions/claude-windows-hook.json'),'utf8'));
   assert.equal(captured.cwd,o.home);
   assert.equal(captured.terminalId,'windows-terminal');
+  if(process.platform==='win32') {
+    const agyInput=JSON.stringify({quota:{'gemini-weekly':{remaining_fraction:0.8,reset_time:'2027-01-15T08:00:00Z'}}});
+    const result=spawnSync('cmd.exe',['/c',agyCommand],{input:agyInput,encoding:'utf8',windowsVerbatimArguments:false,env:{...process.env,HERDR_BRIDGE_STATE_DIR:o.stateDir}});
+    assert.equal(result.status,0,result.stderr);
+    assert.equal(JSON.parse(await readFile(join(o.stateDir,'quota-agy.json'),'utf8')).windows[0].remainingPercent,80);
+  }
   await install({...o,platform:'win32'});
   await uninstall(o);
   assert.deepEqual(JSON.parse(await readFile(join(o.home,'.claude/settings.json'),'utf8')),o.original);

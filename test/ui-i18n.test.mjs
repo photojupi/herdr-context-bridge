@@ -151,20 +151,25 @@ test('empty usage is localized and hides unobserved provider cards in summary an
   }
 });
 
-test('AGY summary shows Argon weekly only while details retain every bucket', async () => {
+test('AGY summary prefers gemini-weekly and falls back to Argon weekly while details retain every bucket', async () => {
   const ui = await loadUi({ properties: { role: 'summary', locale: 'en' } });
   await settle();
   ui.view.data.quotas = { agy: { provider: 'agy', observedAt: Date.now(), windows: [
+    { id: 'gemini-weekly', label: 'gemini-weekly', remainingPercent: 60, resetsAt: Date.now() + 300_000 },
     { id: 'gemini-argon-wtu-weekly', label: 'gemini-argon-wtu-weekly', remainingPercent: 25, resetsAt: Date.now() + 300_000 },
     { id: '3p-weekly', label: '3p-weekly', remainingPercent: 80, resetsAt: null },
     { id: 'disabled', label: 'disabled', remainingPercent: 1, resetsAt: Date.now() + 300_000, disabled: true },
   ] } };
-  const summary = ui.view.render(ui.cx);
+  let summary = ui.view.render(ui.cx);
   assert.match(visible(summary), /AGY/);
-  assert.doesNotMatch(visible(summary), /Claude\n|Codex|5h|3p-weekly|disabled|argon|80%|1%/);
+  assert.doesNotMatch(visible(summary), /Claude\n|Codex|5h|3p-weekly|disabled|argon|80%|25%|1%/);
+  assert.equal(visible(find(summary, 'summary-agy-weekly')), 'Week 60%');
+  assert.match(find(summary, 'summary-agy-weekly').attributes.tooltip[0], /Gemini Models.*gemini-weekly/);
+  assert.match(find(summary, 'summary-agy-weekly').attributes.tooltip[0], /Resets/);
+  ui.view.data.quotas.agy.windows.shift();
+  summary = ui.view.render(ui.cx);
   assert.equal(visible(find(summary, 'summary-agy-weekly')), 'Week 25%');
   assert.match(find(summary, 'summary-agy-weekly').attributes.tooltip[0], /Gemini 4 Argon.*gemini-argon-wtu-weekly/);
-  assert.match(find(summary, 'summary-agy-weekly').attributes.tooltip[0], /Resets/);
   ui.view.role = 'details';
   const details = visible(ui.view.render(ui.cx));
   assert.match(details, /AGY \(Antigravity\)/);

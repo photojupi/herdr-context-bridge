@@ -60,8 +60,11 @@ export async function install(options={}) {
   const helper=join(modDir,'helper/cli.mjs');
   // This bootstrap contains no user path in shell syntax. It works in cmd,
   // PowerShell and Git Bash; Windows requires node on the provider's PATH.
+  const win32=(options.platform??process.platform)==='win32';
   const bootstrap=`const p=Buffer.from('${Buffer.from(helper).toString('base64')}','base64').toString();process.argv.splice(1,0,p);import(require('node:url').pathToFileURL(p).href)`;
-  const command=mode=>(options.platform??process.platform)==='win32'
+  // AGY runs Windows statusLine via Go's exec.Command("cmd", "/c", ...), which escapes inner double quotes.
+  const agyBootstrap=`process.argv.splice(1,0,Buffer.from('${Buffer.from(helper).toString('base64url')}','base64url').toString()),import(require('node:url').pathToFileURL(process.argv[1]).href)`;
+  const command=mode=>win32
     ? `node -e "${bootstrap}" ${mode}`
     : `${shellQuote(process.execPath)} ${shellQuote(helper)} ${mode}`;
   const claudePath=join(home,'.claude/settings.json'),codexPath=join(home,'.codex/hooks.json'),agyPath=join(home,'.gemini/antigravity-cli/settings.json');
@@ -72,7 +75,7 @@ export async function install(options={}) {
   const agyWrapped=typeof previous?.agyStatusCommand==='string'&&agy.statusLine?.command===previous.agyStatusCommand;
   const originalAgyStatusLine=agyWrapped?previous.originalAgyStatusLine:(agy.statusLine??null);
   const agyDefaultStack=agyWrapped?previous.agyDefaultStack:!agy.statusLine?.command&&!Object.hasOwn(agy.statusLine||{},'stack_with_default');
-  const claudeCommand=command('capture claude'),codexCommand=command('capture codex'),statusCommand=command('statusline'),agyStatusCommand=command('statusline agy');
+  const claudeCommand=command('capture claude'),codexCommand=command('capture codex'),statusCommand=command('statusline'),agyStatusCommand=win32?`node -e ${agyBootstrap} statusline agy`:command('statusline agy');
   let newClaude=addHooks(claude,'claude',claudeCommand);
   newClaude.statusLine={...(claude.statusLine||{}),type:'command',command:statusCommand};
   const newCodex=addHooks(codex,'codex',codexCommand);

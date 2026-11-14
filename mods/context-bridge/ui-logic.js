@@ -9,13 +9,16 @@ export function quotaSummary(quotas, threshold, now) {
     const quota = quotas?.[provider];
     const state = quotaState(quota, now);
     if (provider === 'agy') {
-      const bucketId = 'gemini-argon-wtu-weekly';
-      const window = quota.windows?.find((window) => window.id === bucketId);
+      const primary = quota.windows?.find((window) => window.id === 'gemini-weekly');
+      const fallback = primary ? null : quota.windows?.find((window) => window.id === 'gemini-argon-wtu-weekly');
+      const window = primary ?? fallback;
+      const bucketId = fallback ? 'gemini-argon-wtu-weekly' : 'gemini-weekly';
+      const label = fallback ? 'Gemini 4 Argon' : 'Gemini Models';
       const expired = Number.isFinite(window?.resetsAt) && window.resetsAt <= now;
       const known = ['fresh', 'stale'].includes(state) && !window?.disabled && !expired
         && Number.isFinite(window?.remainingPercent) && window.remainingPercent >= 0 && window.remainingPercent <= 100;
       const remaining = known ? window.remainingPercent : null;
-      return [{ provider, period: 'weekly', label: 'Gemini 4 Argon', bucketId, resetsAt: window?.resetsAt, remaining, state: expired ? 'expired' : known ? state : 'unknown', warning: known && state === 'fresh' && remaining <= threshold }];
+      return [{ provider, period: 'weekly', label, bucketId, resetsAt: window?.resetsAt, remaining, state: expired ? 'expired' : known ? state : 'unknown', warning: known && state === 'fresh' && remaining <= threshold }];
     }
     return ['fiveHour', 'weekly'].map((period) => {
       const candidates = (quota?.windows ?? []).filter((window) => provider === 'claude'

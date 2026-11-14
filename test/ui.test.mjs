@@ -35,7 +35,7 @@ test('summary never guesses Codex periods or combines model buckets', () => {
   assert.equal(summarize([window('codex:primary', 20), window('codex:secondary', 75)])[0].remaining, null);
 });
 
-test('AGY summary selects only the Argon weekly quota without changing other collected buckets', () => {
+test('AGY summary prefers gemini-weekly and falls back to Argon weekly without changing other buckets', () => {
   const agy = { provider: 'agy', observedAt: now, windows: [
     { id: '3p-5h', remainingPercent: 1, resetsAt: now + 300_000 },
     { id: '3p-weekly', remainingPercent: 80, resetsAt: now + 300_000 },
@@ -46,15 +46,19 @@ test('AGY summary selects only the Argon weekly quota without changing other col
   const before = structuredClone(agy);
   const summary = logic.quotaSummary({ agy }, 10, now);
   assert.deepEqual(summary.map(({ provider, period, label, bucketId, remaining, warning }) => ({ provider, period, label, bucketId, remaining, warning })), [
-    { provider: 'agy', period: 'weekly', label: 'Gemini 4 Argon', bucketId: 'gemini-argon-wtu-weekly', remaining: 25, warning: false },
+    { provider: 'agy', period: 'weekly', label: 'Gemini Models', bucketId: 'gemini-weekly', remaining: 60, warning: false },
   ]);
   assert.deepEqual(agy, before);
   assert.equal(lowQuotaAlerts(agy, 10, now, {})[0].window.id, '3p-5h');
+  const legacy = { provider: 'agy', observedAt: now, windows: agy.windows.filter((window) => window.id !== 'gemini-weekly') };
+  assert.deepEqual(logic.quotaSummary({ agy: legacy }, 10, now).map(({ provider, period, label, bucketId, remaining, warning }) => ({ provider, period, label, bucketId, remaining, warning })), [
+    { provider: 'agy', period: 'weekly', label: 'Gemini 4 Argon', bucketId: 'gemini-argon-wtu-weekly', remaining: 25, warning: false },
+  ]);
 });
 
-test('missing Argon weekly quota never falls back to another AGY weekly quota', () => {
+test('missing Gemini weekly quota never falls back to a third-party AGY weekly quota', () => {
   for (const agy of [
-    { provider: 'agy', observedAt: now, windows: [{ id: 'gemini-weekly', remainingPercent: 90, resetsAt: now + 1000 }, { id: '3p-weekly', remainingPercent: 80, resetsAt: now + 1000 }] },
+    { provider: 'agy', observedAt: now, windows: [{ id: '3p-weekly', remainingPercent: 80, resetsAt: now + 1000 }] },
     { provider: 'agy', windows: [], error: 'offline' },
   ]) {
     const [entry, ...rest] = logic.quotaSummary({ agy }, 10, now);
@@ -65,11 +69,16 @@ test('missing Argon weekly quota never falls back to another AGY weekly quota', 
   }
 });
 
-test('AGY invalid or disabled buckets never show a number or trigger a usage warning', () => {
+test('AGY invalid or disabled buckets never show a number, fall back to Argon, or trigger a usage warning', () => {
   for (const patch of [{ disabled: true }, { remainingPercent: -1 }, { remainingPercent: 101 }, { remainingPercent: null }, { resetsAt: now }]) {
-    const agy = { provider: 'agy', observedAt: now, windows: [{ id: 'gemini-argon-wtu-weekly', remainingPercent: 5, resetsAt: now + 1000, ...patch }] };
+    const agy = { provider: 'agy', observedAt: now, windows: [
+      { id: 'gemini-weekly', remainingPercent: 5, resetsAt: now + 1000, ...patch },
+      { id: 'gemini-argon-wtu-weekly', remainingPercent: 80, resetsAt: now + 1000 },
+    ] };
     assert.equal(logic.quotaSummary({ agy }, 10, now)[0]?.remaining, null);
-    assert.deepEqual(lowQuotaAlerts(agy, 10, now, {}), []);
+    const argonOnly = { provider: 'agy', observedAt: now, windows: [{ id: 'gemini-argon-wtu-weekly', remainingPercent: 5, resetsAt: now + 1000, ...patch }] };
+    assert.equal(logic.quotaSummary({ agy: argonOnly }, 10, now)[0]?.remaining, null);
+    assert.deepEqual(lowQuotaAlerts(argonOnly, 10, now, {}), []);
   }
   const agy = { provider: 'agy', observedAt: now, windows: [{ id: 'bucket', remainingPercent: 5, resetsAt: now + 1000 }] };
   assert.equal(lowQuotaAlerts(agy, 10, now, {}).length, 1);
