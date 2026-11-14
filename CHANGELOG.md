@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-15
+
 ### Fixed
 
 - 재설치 시 `layouts/context-bridge.json`을 `main.json`으로 다시 덮어쓰지 않고 `context-bridge` 관련 노드만 제자리에서 갱신하여, 같은 레이아웃에 추가한 다른 개인 mod 연결(`source-control` 등)이 초기화되지 않도록 수정했습니다. 제거 시에도 사용자가 수정한 `layouts/context-bridge.json`은 파일을 보존한 채 `context-bridge` 요약 노드만 걷어냅니다.

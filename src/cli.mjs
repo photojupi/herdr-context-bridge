@@ -26,7 +26,7 @@ try {
       const output=await (await import('./capture.mjs')).runStatusLine(await stdin(),{provider:args[0]||'claude',stateDir,env:process.env});
       if(output.stdout)process.stdout.write(output.stdout);if(output.stderr)process.stderr.write(output.stderr);process.exitCode=output.code;break;
     }
-    default:result={name:'herdr-context-bridge',commands:['locale','status','config','sessions','bind','handoff','job'],version:'0.1.1'};
+    default:result={name:'herdr-context-bridge',commands:['locale','status','config','sessions','bind','handoff','job'],version:'0.1.2'};
   }
   if(result!==undefined)process.stdout.write(JSON.stringify(result)+'\n');
 } catch(error) {
