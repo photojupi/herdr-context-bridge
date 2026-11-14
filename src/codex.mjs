@@ -81,7 +81,7 @@ export async function withCodex(callback, options = {}) {
   try {
     return await Promise.race([(async () => {
       await client.request('initialize', {
-        clientInfo: { name: 'herdr_context_bridge', title: 'Herdr Context Bridge', version: '0.1.0' },
+        clientInfo: { name: 'herdr_context_bridge', title: 'Herdr Context Bridge', version: '0.1.1' },
         capabilities: { experimentalApi: true },
       });
       send({ method: 'initialized', params: {} });

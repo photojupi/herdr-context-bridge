@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-15
+
 ### Changed
 
 - 하단 AGY 요약의 대표 주간 bucket을 `gemini-weekly` 우선(`gemini-weekly`가 없을 때만 기존 `gemini-argon-wtu-weekly` 호환)으로 변경했습니다. 두 bucket이 모두 없거나 선택한 bucket이 비활성·만료 상태이면 다른 주간 한도로 대체하지 않고 **AGY 주간 —**를 유지하며, 상세창과 알림의 전체 bucket 표시는 그대로 유지합니다.
