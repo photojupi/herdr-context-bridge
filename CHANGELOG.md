@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### Changed
+
+- 네 언어 README 상단에 `npx` 빠른 시작과 npm 버전 배지를 추가했습니다. 설치와 제거 절을 설치·갱신·설치기가 바꾸는 내용·제거·소스에서 설치 소절로 나눴으며, 설명 내용과 명령은 그대로입니다.
+
+## [0.1.0] - 2026-11-14
+
 ### Added
 
 - `npx herdr-context-bridge@latest install`·`uninstall`(Windows: `npx.cmd`) 한 줄로 저장소 복제 없이 설치·갱신·제거할 수 있도록 `herdr-context-bridge` 실행 파일(`bin/herdr-context-bridge.mjs`)과 npm 공개 배포용 package 설정을 추가했습니다. 인자가 없거나 `--help`이면 사용법만 출력하고, 알 수 없는 명령·옵션·남는 인자는 아무것도 바꾸지 않고 오류로 끝냅니다.

@@ -2,6 +2,8 @@
 
 [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
 
+[![npm version](https://img.shields.io/npm/v/herdr-context-bridge)](https://www.npmjs.com/package/herdr-context-bridge)
+
 这是一个支持 macOS 和原生 Windows 的本地工具，用于在 Herdr 中查看 Claude Code、Codex 和 AGY（Antigravity CLI）账户的剩余额度，并在额度不足时，将工作记录交接到同一工作目录下的新终端。支持三种提供方之间的全部六个方向（Claude ↔ Codex、Claude ↔ AGY、Codex ↔ AGY）。默认模式为 **每次批准**。自动交接必须由用户针对选定的来源会话明确启用。
 
 仅使用 Node.js 内置模块，无需单独的 Web 服务器或第三方依赖。
@@ -15,6 +17,24 @@
 ![使用示例数据展示额度摘要与交接详情的示意图](docs/images/context-bridge-preview.svg)
 
 *这是使用示例数据绘制的示意图，并非实际截图。*
+
+## 快速开始
+
+先启动一次 Herdr 应用，并确保已安装 Node.js 22.5 或更高版本。无需克隆仓库，也无需下载其他内容。macOS 使用以下命令：
+
+```sh
+npx herdr-context-bridge@latest install
+herdr-app do layout.switch '{"name":"context-bridge"}'
+```
+
+Windows（PowerShell）使用以下命令：
+
+```powershell
+npx.cmd herdr-context-bridge@latest install
+herdr-app do layout.switch --name context-bridge
+```
+
+第一条命令安装 mod、helper 和 hooks，第二条命令切换到显示额度摘要的布局。已登录的各 CLI 上报用量后才会显示用量，仅完成安装不会显示。添加 `--dry-run` 可预览将要更改的文件；更新时重新运行同一条 `install` 命令；卸载时使用 `uninstall`。详情请参阅[安装与卸载](#安装与卸载)和[环境要求](#环境要求)。
 
 ## 支持语言
 
@@ -34,37 +54,55 @@ CI 在 `macos-latest` 和 `windows-latest` 上使用 Node.js 22.5 和 24 执行�
 
 ## 安装与卸载
 
+### 安装
+
 先启动一次 Herdr，生成默认布局，然后使用 npx 安装。无需下载源码，安装只需要 Node.js 22.5 或更高版本。macOS 使用以下命令：
 
 ```sh
+# 预览将要更改的文件（可选）
 npx herdr-context-bridge@latest install --dry-run
+# 安装 mod、helper、布局和 hooks
 npx herdr-context-bridge@latest install
+# 检查已安装的 mod（可选）
 herdr-app check ~/.config/herdr-app/mods/context-bridge
+# 切换到显示额度摘要的布局
 herdr-app do layout.switch '{"name":"context-bridge"}'
 ```
 
 Windows 使用 PowerShell。PowerShell 执行策略可能会阻止 `npx.ps1`，因此请使用 `npx.cmd`：
 
 ```powershell
+# 预览将要更改的文件（可选）
 npx.cmd herdr-context-bridge@latest install --dry-run
+# 安装 mod、helper、布局和 hooks
 npx.cmd herdr-context-bridge@latest install
+# 检查已安装的 mod（可选）
 herdr-app check "$env:USERPROFILE/.config/herdr-app/mods/context-bridge"
+# 切换到显示额度摘要的布局
 herdr-app do layout.switch --name context-bridge
 ```
+
+安装后：
+
+Codex 可能要求通过 `/hooks` 等 CLI 正常流程信任已安装的 hooks。已有会话可能不会立即加载新 hooks，请使用下文的手动会话绑定。仅完成安装不会产生 Claude 用量数据；对应会话在 API 响应后收到状态栏输入，才会显示用量。
+
+不带参数或带 `--help` 运行 `herdr-context-bridge` 只会输出用法；`--dryrun` 等未知命令或选项不会做任何更改，并以错误结束。
+
+### 更新
+
+更新时，请重新运行 `npx herdr-context-bridge@latest install`（Windows 使用 `npx.cmd`），以更新已复制的 helper 并启用权限模式保留功能。请保留 `@latest`，否则 npx 可能会复用缓存中的旧版本。
+
+### 安装程序会更改的内容
 
 上述路径假定使用默认 Herdr 配置目录。安装程序遵循 [Herdr 的 `app_dir()`](https://github.com/herdrdev/herdr-app/blob/master/src/mods.rs)，依次使用 `HERDR_APP_HOME`、`XDG_CONFIG_HOME/herdr-app`，最后是 Windows 的 `USERPROFILE/.config/herdr-app` 或 macOS 的 `HOME/.config/herdr-app`。若设置了覆盖路径，`herdr-app check` 也应使用该目录。本文中的 `~` 表示相应的用户主目录。
 
 默认情况下，安装程序会将个人 mod 和 helper 复制到 `~/.config/herdr-app/mods/context-bridge/`，并在默认 `main` 布局的副本 `layouts/context-bridge.json` 中，将额度摘要放在现有底部状态栏的同一行。保持状态栏原有高度；没有状态栏的布局会新增底部一行。重新安装会将原右侧面板替换为此布局，不会重复添加摘要。不会修改内置 mod 或原始 `main.json`。安装命令本身不会切换当前显示的布局。
 
-不带参数或带 `--help` 运行 `herdr-context-bridge` 只会输出用法；`--dryrun` 等未知命令或选项不会做任何更改，并以错误结束。
-
-更新时，请重新运行 `npx herdr-context-bridge@latest install`（Windows 使用 `npx.cmd`），以更新已复制的 helper 并启用权限模式保留功能。请保留 `@latest`，否则 npx 可能会复用缓存中的旧版本。
-
 安装程序会在 Claude 的 `~/.claude/settings.json` 中添加状态栏 wrapper 和 hooks，在 Codex 的 `~/.codex/hooks.json` 中添加 hooks，并在 AGY 的 `~/.gemini/antigravity-cli/settings.json` 中添加状态栏 wrapper。保留已有 hooks。原有 Claude 状态栏命令仍会收到原始 stdin，其输出和退出码也会保留。首次配置备份和变更文件列表保存在 `~/.local/state/herdr-context-bridge/install.json`。如果用户在重新安装前修改了状态栏命令，wrapper 会改用该新命令作为原始命令，同时保留首次文件备份。
 
 在 Windows 上，原有 Claude 状态栏命令优先使用 Git Bash，没有 Git Bash 时使用 PowerShell；AGY 保持默认 Windows 命令 shell。交接改用 Node 启动器保留参数和环境变量，无需 `/usr/bin/env`。
 
-Codex 可能要求通过 `/hooks` 等 CLI 正常流程信任已安装的 hooks。已有会话可能不会立即加载新 hooks，请使用下文的手动会话绑定。仅完成安装不会产生 Claude 用量数据；对应会话在 API 响应后收到状态栏输入，才会显示用量。
+### 卸载
 
 卸载前请先切回原来的布局。以下示例使用默认 `main`：
 

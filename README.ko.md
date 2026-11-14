@@ -2,6 +2,8 @@
 
 [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
 
+[![npm version](https://img.shields.io/npm/v/herdr-context-bridge)](https://www.npmjs.com/package/herdr-context-bridge)
+
 Herdr에서 Claude Code·Codex·AGY(Antigravity CLI)의 계정 잔여량을 확인하는 로컬 macOS·Windows 네이티브 도구입니다. 한도가 부족해지면 Claude·Codex·AGY 사이의 모든 여섯 방향으로 같은 작업 폴더의 새 터미널에 작업 기록을 인계할 수 있습니다. 기본값은 **매번 승인**입니다. 자동 인계는 사용자가 선택한 원본 세션에 직접 켜야 합니다.
 
 Node.js 기본 모듈만 사용하며 별도 웹 서버나 외부 의존성은 필요하지 않습니다.
@@ -11,6 +13,24 @@ Node.js 기본 모듈만 사용하며 별도 웹 서버나 외부 의존성은 �
 ![예시 데이터로 잔여량 요약과 인계 상세 화면을 표현한 일러스트](docs/images/context-bridge-preview.svg)
 
 *예시 데이터를 사용한 일러스트이며 실제 스크린샷이 아닙니다.*
+
+## 빠른 시작
+
+Herdr 앱을 한 번 실행해 두고 Node.js 22.5 이상이 설치되어 있는지 확인합니다. 저장소를 복제하거나 따로 내려받을 것은 없습니다. macOS에서는 다음을 실행합니다.
+
+```sh
+npx herdr-context-bridge@latest install
+herdr-app do layout.switch '{"name":"context-bridge"}'
+```
+
+Windows(PowerShell)에서는 다음을 실행합니다.
+
+```powershell
+npx.cmd herdr-context-bridge@latest install
+herdr-app do layout.switch --name context-bridge
+```
+
+첫 명령은 mod·helper·hooks를 설치하고, 둘째 명령은 잔여량 요약이 있는 레이아웃으로 전환합니다. 사용량은 로그인된 각 CLI가 사용량을 보고한 뒤에 표시되며, 설치만으로는 나타나지 않습니다. 바뀔 파일을 미리 보려면 `--dry-run`을 붙이고, 갱신할 때는 같은 `install` 명령을 다시 실행하며, 제거할 때는 `uninstall`을 사용합니다. 자세한 내용은 [설치와 제거](#설치와-제거)와 [준비](#준비)를 참고하세요.
 
 ## 지원 언어
 
@@ -31,31 +51,49 @@ CI는 `macos-latest`와 `windows-latest`에서 Node.js 22.5·24로 회귀 테스
 
 ## 설치와 제거
 
+### 설치
+
 Herdr를 한 번 실행해 기본 레이아웃을 만든 뒤 npx로 설치합니다. 소스를 받을 필요가 없으며 설치에는 Node.js 22.5 이상만 있으면 됩니다. macOS에서는 다음을 실행합니다.
 
 ```sh
+# 바뀔 파일 미리 보기(선택)
 npx herdr-context-bridge@latest install --dry-run
+# mod·helper·레이아웃·hooks 설치
 npx herdr-context-bridge@latest install
+# 설치된 mod 점검(선택)
 herdr-app check ~/.config/herdr-app/mods/context-bridge
+# 잔여량 요약이 있는 레이아웃으로 전환
 herdr-app do layout.switch '{"name":"context-bridge"}'
 ```
 
 Windows에서는 PowerShell을 사용합니다. PowerShell 실행 정책이 `npx.ps1`을 막을 수 있으므로 `npx.cmd`를 사용합니다.
 
 ```powershell
+# 바뀔 파일 미리 보기(선택)
 npx.cmd herdr-context-bridge@latest install --dry-run
+# mod·helper·레이아웃·hooks 설치
 npx.cmd herdr-context-bridge@latest install
+# 설치된 mod 점검(선택)
 herdr-app check "$env:USERPROFILE/.config/herdr-app/mods/context-bridge"
+# 잔여량 요약이 있는 레이아웃으로 전환
 herdr-app do layout.switch --name context-bridge
 ```
+
+설치한 뒤에는 다음을 확인합니다.
+
+Codex에서는 설치한 hooks를 `/hooks` 등 CLI의 정상 절차로 신뢰해야 할 수 있습니다. 기존 실행 세션은 새 hooks를 즉시 반영하지 않을 수 있으므로 아래의 수동 세션 연결을 이용하세요. Claude 사용량은 설치만으로 생기지 않으며, 해당 세션에서 API 응답 후 상태줄 입력이 들어와야 표시됩니다.
+
+`herdr-context-bridge`를 인자 없이 또는 `--help`로 실행하면 사용법만 출력하며, `--dryrun` 같은 알 수 없는 명령이나 옵션은 아무것도 바꾸지 않고 오류로 끝납니다.
+
+### 갱신
+
+갱신할 때는 `npx herdr-context-bridge@latest install`(Windows에서는 `npx.cmd`)을 다시 실행하면 복사된 helper가 갱신되어 AGY 인계와 권한 모드 처리가 적용됩니다. `@latest`를 빼면 npx가 캐시에 남은 이전 버전을 다시 사용할 수 있으므로 붙여 둡니다.
+
+### 설치기가 바꾸는 내용
 
 위 경로는 기본 Herdr 설정 폴더 기준입니다. 설치기는 [Herdr의 `app_dir()`](https://github.com/herdrdev/herdr-app/blob/master/src/mods.rs)와 같이 `HERDR_APP_HOME`, `XDG_CONFIG_HOME/herdr-app`, Windows의 `USERPROFILE/.config/herdr-app` 또는 macOS의 `HOME/.config/herdr-app` 순서로 선택합니다. 경로를 재정의했다면 `herdr-app check`에도 그 폴더를 사용하세요. 이 문서의 `~`는 해당 사용자 홈 폴더를 뜻합니다.
 
 기본 설정에서 설치기는 개인 mod와 helper를 `~/.config/herdr-app/mods/context-bridge/`에 복사하고, 기본 `main` 레이아웃을 복제한 `layouts/context-bridge.json`의 기존 하단 상태바 옆에 잔여량 요약을 배치합니다. 기존 상태바 높이는 유지하며, 상태바가 없는 레이아웃에는 하단 한 줄을 추가합니다. 재설치하면 기존 우측 패널을 이 구성으로 교체하고 요약을 중복으로 만들지 않습니다. 내장 mod와 원본 `main.json`은 수정하지 않습니다. 설치 명령 자체는 화면 레이아웃을 전환하지 않습니다.
-
-`herdr-context-bridge`를 인자 없이 또는 `--help`로 실행하면 사용법만 출력하며, `--dryrun` 같은 알 수 없는 명령이나 옵션은 아무것도 바꾸지 않고 오류로 끝납니다.
-
-갱신할 때는 `npx herdr-context-bridge@latest install`(Windows에서는 `npx.cmd`)을 다시 실행하면 복사된 helper가 갱신되어 AGY 인계와 권한 모드 처리가 적용됩니다. `@latest`를 빼면 npx가 캐시에 남은 이전 버전을 다시 사용할 수 있으므로 붙여 둡니다.
 
 Claude의 `~/.claude/settings.json`에 상태줄 wrapper와 hooks를 추가하고, Codex의 `~/.codex/hooks.json`에 hooks를 추가합니다. 기존 hooks는 유지합니다. 기존 Claude 상태줄 명령에는 원래 stdin을 전달하고 출력과 종료 코드를 유지합니다. 최초 설정 백업과 변경 파일 목록은 `~/.local/state/herdr-context-bridge/install.json`에 저장합니다. 재설치 전 사용자가 상태줄 명령을 바꿨다면 그 새 명령을 wrapper의 원본으로 사용하며 최초 파일 백업은 보존합니다.
 
@@ -63,7 +101,7 @@ Windows에서 원래 Claude 상태줄은 Git Bash가 있으면 해당 셸로, �
 
 AGY의 `~/.gemini/antigravity-cli/settings.json`에도 상태줄 wrapper를 추가합니다. 기존 명령의 stdin·stdout·stderr·종료 코드와 사용자 옵션을 보존하며, 상태줄이 없었다면 AGY 기본 상태줄 아래에 표시합니다. 명시적으로 꺼 둔 상태줄은 켜지 않습니다. 기존 설치에는 `npx herdr-context-bridge@latest install`을 다시 실행한 뒤 로그인된 AGY 세션에서 정상 상태줄 데이터가 들어오면 반영됩니다. 테스트 프롬프트를 보낼 필요는 없습니다. 최초 유효 기록 전에는 숨겨지며, **새로고침**은 Claude·AGY가 이미 전달한 데이터를 다시 읽습니다.
 
-Codex에서는 설치한 hooks를 `/hooks` 등 CLI의 정상 절차로 신뢰해야 할 수 있습니다. 기존 실행 세션은 새 hooks를 즉시 반영하지 않을 수 있으므로 아래의 수동 세션 연결을 이용하세요. Claude 사용량은 설치만으로 생기지 않으며, 해당 세션에서 API 응답 후 상태줄 입력이 들어와야 표시됩니다.
+### 제거
 
 제거할 때는 먼저 원래 레이아웃으로 돌아갑니다. 아래 예시는 기본 `main`입니다.
 

@@ -2,6 +2,8 @@
 
 [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
 
+[![npm version](https://img.shields.io/npm/v/herdr-context-bridge)](https://www.npmjs.com/package/herdr-context-bridge)
+
 Herdr で Claude Code・Codex・AGY（Antigravity CLI）のアカウント残量を確認し、上限が近づいたときに同じ作業フォルダの新しいターミナルへ作業履歴を引き継ぐ、macOS とネイティブ Windows 向けのローカルツールです。3 つのプロバイダー間の全 6 方向（Claude ↔ Codex、Claude ↔ AGY、Codex ↔ AGY）に対応します。既定は **毎回承認** です。自動引き継ぎは、選択した引き継ぎ元セッションに対してユーザーが明示的に有効にする必要があります。
 
 Node.js の組み込みモジュールのみを使用し、別の Web サーバーや外部の依存パッケージは不要です。
@@ -15,6 +17,24 @@ AGY の公式 [`statusLine` の `quota`](https://antigravity.google/docs/cli/sta
 ![サンプルデータで残量の要約と引き継ぎの詳細を示したイラスト](docs/images/context-bridge-preview.svg)
 
 *サンプルデータを使ったイラストです。実際のスクリーンショットではありません。*
+
+## クイックスタート
+
+Herdr アプリを一度起動し、Node.js 22.5 以降がインストールされていることを確認してください。リポジトリのクローンも、そのほかのダウンロードも不要です。macOS では次を実行します。
+
+```sh
+npx herdr-context-bridge@latest install
+herdr-app do layout.switch '{"name":"context-bridge"}'
+```
+
+Windows（PowerShell）では次を実行します。
+
+```powershell
+npx.cmd herdr-context-bridge@latest install
+herdr-app do layout.switch --name context-bridge
+```
+
+1 つ目のコマンドで mod・helper・hooks をインストールし、2 つ目のコマンドで残量の要約を含むレイアウトに切り替えます。使用量はログイン済みの各 CLI が報告した後に表示され、インストールだけでは表示されません。変更されるファイルを事前に確認するには `--dry-run` を付け、更新するには同じ `install` コマンドを再実行し、アンインストールには `uninstall` を使います。詳しくは [インストールとアンインストール](#インストールとアンインストール) と [必要な環境](#必要な環境) を参照してください。
 
 ## 対応言語
 
@@ -34,37 +54,55 @@ CI は `macos-latest` と `windows-latest` で Node.js 22.5・24 を使い、回
 
 ## インストールとアンインストール
 
+### インストール
+
 Herdr を一度起動して既定のレイアウトを作成し、npx でインストールします。ソースを取得する必要はなく、インストールに必要なのは Node.js 22.5 以降だけです。macOS では次を実行します。
 
 ```sh
+# 変更されるファイルを確認（任意）
 npx herdr-context-bridge@latest install --dry-run
+# mod・helper・レイアウト・hooks をインストール
 npx herdr-context-bridge@latest install
+# インストールした mod を確認（任意）
 herdr-app check ~/.config/herdr-app/mods/context-bridge
+# 残量の要約を含むレイアウトに切り替え
 herdr-app do layout.switch '{"name":"context-bridge"}'
 ```
 
 Windows では PowerShell を使います。PowerShell の実行ポリシーが `npx.ps1` をブロックすることがあるため、`npx.cmd` を使います。
 
 ```powershell
+# 変更されるファイルを確認（任意）
 npx.cmd herdr-context-bridge@latest install --dry-run
+# mod・helper・レイアウト・hooks をインストール
 npx.cmd herdr-context-bridge@latest install
+# インストールした mod を確認（任意）
 herdr-app check "$env:USERPROFILE/.config/herdr-app/mods/context-bridge"
+# 残量の要約を含むレイアウトに切り替え
 herdr-app do layout.switch --name context-bridge
 ```
+
+インストール後は次の点に注意してください。
+
+Codex では `/hooks` など CLI の通常の手順で、インストールされた hooks を信頼する必要がある場合があります。既存のセッションには新しい hooks がすぐ反映されないことがあるため、後述の手動のセッション関連付けを利用してください。Claude の使用量はインストールだけでは表示されず、該当セッションで API 応答後にステータスライン入力が届くと表示されます。
+
+`herdr-context-bridge` を引数なし、または `--help` 付きで実行すると使い方だけを表示し、`--dryrun` のような不明なコマンドやオプションは何も変更せずにエラーで終了します。
+
+### 更新
+
+更新するときは `npx herdr-context-bridge@latest install`（Windows では `npx.cmd`）を再実行すると、コピー済みの helper が更新され、権限モードの保持が適用されます。`@latest` を省くと npx がキャッシュに残った古いバージョンを再利用することがあるため、付けたままにしてください。
+
+### インストーラーによる変更内容
 
 上のパスは Herdr の既定の設定フォルダを前提としています。インストーラーは [Herdr の `app_dir()`](https://github.com/herdrdev/herdr-app/blob/master/src/mods.rs) に従い、`HERDR_APP_HOME`、`XDG_CONFIG_HOME/herdr-app`、Windows の `USERPROFILE/.config/herdr-app` または macOS の `HOME/.config/herdr-app` の順に選びます。上書き設定がある場合は `herdr-app check` にもそのフォルダを指定してください。この文書の `~` は各ユーザーのホームフォルダです。
 
 既定ではインストーラーは個人用 mod と helper を `~/.config/herdr-app/mods/context-bridge/` にコピーし、既定の `main` レイアウトを複製した `layouts/context-bridge.json` の既存の下部ステータスバーと同じ行に残量の要約を配置します。ステータスバーの高さは維持し、ステータスバーがないレイアウトには下部に一行追加します。再インストールすると従来の右パネルをこの構成に置き換え、要約を重複させません。組み込み mod と元の `main.json` は変更しません。インストールコマンド自体は画面のレイアウトを切り替えません。
 
-`herdr-context-bridge` を引数なし、または `--help` 付きで実行すると使い方だけを表示し、`--dryrun` のような不明なコマンドやオプションは何も変更せずにエラーで終了します。
-
-更新するときは `npx herdr-context-bridge@latest install`（Windows では `npx.cmd`）を再実行すると、コピー済みの helper が更新され、権限モードの保持が適用されます。`@latest` を省くと npx がキャッシュに残った古いバージョンを再利用することがあるため、付けたままにしてください。
-
 Claude の `~/.claude/settings.json` にステータスラインの wrapper と hooks を追加し、Codex の `~/.codex/hooks.json` に hooks、AGY の `~/.gemini/antigravity-cli/settings.json` にステータスラインの wrapper を追加します。既存の hooks は保持します。既存の Claude ステータスラインコマンドには元の stdin を渡し、出力と終了コードを維持します。初回の設定バックアップと変更ファイル一覧は `~/.local/state/herdr-context-bridge/install.json` に保存します。再インストール前にユーザーがステータスラインコマンドを変更した場合、その新しいコマンドを wrapper の呼び出し元コマンドとして使用し、初回のファイルバックアップは保持します。
 
 Windows では元の Claude ステータスラインを Git Bash があればそのシェルで、なければ PowerShell で実行します。AGY は既定の Windows コマンドシェルを使います。引き継ぎには `/usr/bin/env` に代えて Node ランチャーを使い、引数と環境変数を保持します。
 
-Codex では `/hooks` など CLI の通常の手順で、インストールされた hooks を信頼する必要がある場合があります。既存のセッションには新しい hooks がすぐ反映されないことがあるため、後述の手動のセッション関連付けを利用してください。Claude の使用量はインストールだけでは表示されず、該当セッションで API 応答後にステータスライン入力が届くと表示されます。
+### アンインストール
 
 アンインストールの前に元のレイアウトへ戻します。以下は既定の `main` を使う例です。
 
