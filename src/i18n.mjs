@@ -714,6 +714,18 @@ export const messages={
     "ko": "큰 record: 모든 byte 조각을 읽으십시오",
     "ja": "大きい record: すべての byte チャンクを読んでください",
     "zh-CN": "大记录：请阅读所有 byte 分块"
+  },
+  "cli.usage": {
+    "ko": "사용법:\n  herdr-context-bridge install [--dry-run]    Herdr mod와 훅을 설치하거나 갱신합니다\n  herdr-context-bridge uninstall [--dry-run]  설치한 mod와 훅을 제거하고 원래 설정을 복원합니다\n  herdr-context-bridge --help                 이 도움말을 표시합니다\n  herdr-context-bridge --version              버전을 표시합니다\n\n--dry-run은 바꿀 파일만 보여 주고 아무것도 쓰지 않습니다.",
+    "en": "Usage:\n  herdr-context-bridge install [--dry-run]    Install or update the Herdr mod and hooks\n  herdr-context-bridge uninstall [--dry-run]  Remove the installed mod and hooks and restore the original settings\n  herdr-context-bridge --help                 Show this help\n  herdr-context-bridge --version              Show the version\n\n--dry-run only lists the files that would change and writes nothing.",
+    "ja": "使い方:\n  herdr-context-bridge install [--dry-run]    Herdr の mod とフックをインストールまたは更新します\n  herdr-context-bridge uninstall [--dry-run]  インストールした mod とフックを削除し、元の設定を復元します\n  herdr-context-bridge --help                 このヘルプを表示します\n  herdr-context-bridge --version              バージョンを表示します\n\n--dry-run は変更されるファイルを表示するだけで、何も書き込みません。",
+    "zh-CN": "用法：\n  herdr-context-bridge install [--dry-run]    安装或更新 Herdr mod 和钩子\n  herdr-context-bridge uninstall [--dry-run]  移除已安装的 mod 和钩子并恢复原始设置\n  herdr-context-bridge --help                 显示此帮助\n  herdr-context-bridge --version              显示版本\n\n--dry-run 仅列出将要更改的文件，不写入任何内容。"
+  },
+  "알 수 없는 명령 또는 옵션입니다: {arg}. --help로 사용법을 확인해 주세요.": {
+    "en": "Unknown command or option: {arg}. Run --help for usage.",
+    "ko": "알 수 없는 명령 또는 옵션입니다: {arg}. --help로 사용법을 확인해 주세요.",
+    "ja": "不明なコマンドまたはオプションです: {arg}。使い方は --help で確認してください。",
+    "zh-CN": "未知的命令或选项：{arg}。请运行 --help 查看用法。"
   }
 };
 export function t(key,params={},locale=getLocale()) {

@@ -4,11 +4,11 @@
 
 这是一个支持 macOS 和原生 Windows 的本地工具，用于在 Herdr 中查看 Claude Code、Codex 和 AGY（Antigravity CLI）账户的剩余额度，并在额度不足时，将工作记录交接到同一工作目录下的新终端。支持三种提供方之间的全部六个方向（Claude ↔ Codex、Claude ↔ AGY、Codex ↔ AGY）。默认模式为 **每次批准**。自动交接必须由用户针对选定的来源会话明确启用。
 
-仅使用 Node.js 内置模块，无需单独的 Web 服务器或安装额外软件包。
+仅使用 Node.js 内置模块，无需单独的 Web 服务器或第三方依赖。
 
 仅显示通过官方接口观察到账户使用记录的提供方：Codex 成功查询用量，或 Claude/AGY 状态栏传入有效额度数据。安装、配置文件存在或 `authenticating` 事件本身不算认证记录。已有的有效缓存也会被识别；之后查询失败时仍显示该提供方，并标记不可用或过期。这是观察历史，并非实时登录状态检查。
 
-已有安装请重新运行 `npm run install:mod`。安装程序在 AGY 的 `~/.gemini/antigravity-cli/settings.json` 中添加 wrapper，保留原命令的 stdin、stdout、stderr、退出码以及用户选项。全新配置会显示在默认状态栏下方，明确禁用的状态栏不会被启用。登录后的会话正常传入数据后即可显示，无需发送测试提示词。**刷新**只会重新读取 Claude/AGY 已收集的数据。
+已有安装请重新运行 `npx herdr-context-bridge@latest install`。安装程序在 AGY 的 `~/.gemini/antigravity-cli/settings.json` 中添加 wrapper，保留原命令的 stdin、stdout、stderr、退出码以及用户选项。全新配置会显示在默认状态栏下方，明确禁用的状态栏不会被启用。登录后的会话正常传入数据后即可显示，无需发送测试提示词。**刷新**只会重新读取 Claude/AGY 已收集的数据。
 
 使用 AGY 官方 [`statusLine` 的 `quota`](https://antigravity.google/docs/cli/statusline/)。底部摘要仅将用户指定的代表项 Gemini4 Argon 的 `gemini-argon-wtu-weekly` 显示为 **AGY 每周 XX%**，提示中包含模型名称、原始 bucket ID 和重置时间。若该 bucket 不存在，则显示 **AGY 每周 —**，不会改用其他每周额度。这是用户选择的代表项，并非自动判断价格的功能。详情和提醒仍保留所有 bucket 的原始名称、剩余比例和重置时间。不推测周期、不合并额度，也不会将只有 `remaining_amount` 的数据换算为百分比。禁用的 bucket 显示为不可用。AGY 提醒也可打开已绑定会话的交接确认。bucket 的数值或周期不明确时会暂缓自动交接，仍可手动确认交接。
 
@@ -34,24 +34,20 @@ CI 在 `macos-latest` 和 `windows-latest` 上使用 Node.js 22.5 和 24 执行�
 
 ## 安装与卸载
 
-先启动一次 Herdr，生成默认布局，然后克隆仓库并安装。macOS 使用以下命令：
+先启动一次 Herdr，生成默认布局，然后使用 npx 安装。无需下载源码，安装只需要 Node.js 22.5 或更高版本。macOS 使用以下命令：
 
 ```sh
-git clone https://github.com/photojupi/herdr-context-bridge.git
-cd herdr-context-bridge
-npm run install:mod -- --dry-run
-npm run install:mod
+npx herdr-context-bridge@latest install --dry-run
+npx herdr-context-bridge@latest install
 herdr-app check ~/.config/herdr-app/mods/context-bridge
 herdr-app do layout.switch '{"name":"context-bridge"}'
 ```
 
-Windows 使用 PowerShell：
+Windows 使用 PowerShell。PowerShell 执行策略可能会阻止 `npx.ps1`，因此请使用 `npx.cmd`：
 
 ```powershell
-git clone https://github.com/photojupi/herdr-context-bridge.git
-cd herdr-context-bridge
-npm.cmd run install:mod -- --dry-run
-npm.cmd run install:mod
+npx.cmd herdr-context-bridge@latest install --dry-run
+npx.cmd herdr-context-bridge@latest install
 herdr-app check "$env:USERPROFILE/.config/herdr-app/mods/context-bridge"
 herdr-app do layout.switch --name context-bridge
 ```
@@ -60,7 +56,9 @@ herdr-app do layout.switch --name context-bridge
 
 默认情况下，安装程序会将个人 mod 和 helper 复制到 `~/.config/herdr-app/mods/context-bridge/`，并在默认 `main` 布局的副本 `layouts/context-bridge.json` 中，将额度摘要放在现有底部状态栏的同一行。保持状态栏原有高度；没有状态栏的布局会新增底部一行。重新安装会将原右侧面板替换为此布局，不会重复添加摘要。不会修改内置 mod 或原始 `main.json`。安装命令本身不会切换当前显示的布局。
 
-更新仓库后，请重新运行 `npm run install:mod`（Windows 使用 `npm.cmd run install:mod`），以更新已复制的 helper 并启用权限模式保留功能。
+不带参数或带 `--help` 运行 `herdr-context-bridge` 只会输出用法；`--dryrun` 等未知命令或选项不会做任何更改，并以错误结束。
+
+更新时，请重新运行 `npx herdr-context-bridge@latest install`（Windows 使用 `npx.cmd`），以更新已复制的 helper 并启用权限模式保留功能。请保留 `@latest`，否则 npx 可能会复用缓存中的旧版本。
 
 安装程序会在 Claude 的 `~/.claude/settings.json` 中添加状态栏 wrapper 和 hooks，在 Codex 的 `~/.codex/hooks.json` 中添加 hooks，并在 AGY 的 `~/.gemini/antigravity-cli/settings.json` 中添加状态栏 wrapper。保留已有 hooks。原有 Claude 状态栏命令仍会收到原始 stdin，其输出和退出码也会保留。首次配置备份和变更文件列表保存在 `~/.local/state/herdr-context-bridge/install.json`。如果用户在重新安装前修改了状态栏命令，wrapper 会改用该新命令作为原始命令，同时保留首次文件备份。
 
@@ -72,19 +70,41 @@ Codex 可能要求通过 `/hooks` 等 CLI 正常流程信任已安装的 hooks�
 
 ```sh
 herdr-app do layout.switch '{"name":"main"}'
-npm run uninstall:mod -- --dry-run
-npm run uninstall:mod
+npx herdr-context-bridge@latest uninstall --dry-run
+npx herdr-context-bridge@latest uninstall
 ```
 
 Windows 使用以下命令：
 
 ```powershell
 herdr-app do layout.switch --name main
-npm.cmd run uninstall:mod -- --dry-run
-npm.cmd run uninstall:mod
+npx.cmd herdr-context-bridge@latest uninstall --dry-run
+npx.cmd herdr-context-bridge@latest uninstall
 ```
 
 卸载程序会移除添加的 hooks 和状态栏 wrapper，恢复原有命令。安装后修改的状态栏选项及无关设置会保留。其他受管理文件也仅在内容与安装时一致的情况下才会被删除或恢复；用户修改过的文件会保留，并在结果的 `preserved` 中列出。**卸载后仍保留交接原文、工作状态和备份。** 最后一次安装记录会保存在同一数据目录的 `last-install.json` 中。
+
+### 从源码安装（开发用）
+
+如需修改本仓库，请克隆仓库并改用 npm 脚本。macOS 使用以下命令：
+
+```sh
+git clone https://github.com/photojupi/herdr-context-bridge.git
+cd herdr-context-bridge
+npm run install:mod -- --dry-run
+npm run install:mod
+```
+
+Windows PowerShell 使用以下命令：
+
+```powershell
+git clone https://github.com/photojupi/herdr-context-bridge.git
+cd herdr-context-bridge
+npm.cmd run install:mod -- --dry-run
+npm.cmd run install:mod
+```
+
+然后运行与上文相同的 `herdr-app check` 和 `layout.switch` 命令。拉取更新后请重新运行 `npm run install:mod`；卸载时使用 `npm run uninstall:mod -- --dry-run` 和 `npm run uninstall:mod`（Windows 使用 `npm.cmd`）。两种方式共享 `~/.local/state/herdr-context-bridge/install.json` 中的安装记录，因此从源码安装的内容可以用 npx 重新安装或卸载，反之亦然。
 
 ## 使用方法
 
@@ -150,10 +170,14 @@ AGY 官方状态栏不提供当前权限模式，因此来源为 AGY 时，使�
 | `npm test` | 本地回归测试 |
 | `npm run check` | JavaScript 语法检查 |
 | `node scripts/smoke.mjs` | 使用临时 HOME 和模拟 CLI，验证手动及自动交接的完整执行边界 |
-| `npm run install:mod -- --dry-run` | 预览安装将修改的路径 |
-| `npm run install:mod` | 安装或更新个人 mod、helper、布局和 hooks |
-| `npm run uninstall:mod -- --dry-run` | 预览删除与保留的内容 |
-| `npm run uninstall:mod` | 移除安装变更，保留数据 |
+| `npx herdr-context-bridge@latest install --dry-run` | 预览安装将修改的路径 |
+| `npx herdr-context-bridge@latest install` | 安装或更新个人 mod、helper、布局和 hooks |
+| `npx herdr-context-bridge@latest uninstall --dry-run` | 预览删除与保留的内容 |
+| `npx herdr-context-bridge@latest uninstall` | 移除安装变更，保留数据 |
+| `npm run install:mod -- --dry-run` | 开发用：在克隆中预览安装将修改的路径 |
+| `npm run install:mod` | 开发用：从克隆安装或更新 |
+| `npm run uninstall:mod -- --dry-run` | 开发用：在克隆中预览删除与保留的内容 |
+| `npm run uninstall:mod` | 开发用：在克隆中移除安装变更，保留数据 |
 | `node src/cli.mjs status` | 查询用量、绑定、jobs，并评估当前自动策略 |
 | `node src/cli.mjs locale` | 只读查询检测到的显示语言 |
 | `node src/cli.mjs config` | 查询当前配置 |
@@ -163,6 +187,8 @@ AGY 官方状态栏不提供当前权限模式，因此来源为 AGY 时，使�
 | `node src/cli.mjs bind '<JSON>'` | 使用 `terminalId`、`provider`、`id` 和 `cwd` 绑定候选会话；AGY 还可按会话选择 `handoffPermissionMode`（`default` / `bypass`） |
 | `node src/cli.mjs handoff '<JSON>'` | 使用 `sourceKey`、`target`、`automatic:false` 及可选 `space` 请求手动交接 |
 | `node src/cli.mjs job <jobId>` | 查询指定交接任务 |
+
+`node src/cli.mjs` 命令需在仓库克隆中运行。通过 npx 安装后，请改用已安装的 helper 运行相同命令，例如 `node ~/.config/herdr-app/mods/context-bridge/helper/cli.mjs status`（Windows 上为 `node "$env:USERPROFILE/.config/herdr-app/mods/context-bridge/helper/cli.mjs" status`）。
 
 公开的查询、配置和交接命令均输出 JSON；出错时返回 `{ "error": "…" }` 和非零退出码。`capture`、`statusline`、`worker` 和 `launch` 是已安装 hooks 与 helper 使用的内部命令。`status` 在自动模式下可能触发执行，请勿将其视为纯只读查询。
 

@@ -6,6 +6,7 @@
 
 ### Added
 
+- `npx herdr-context-bridge@latest install`·`uninstall`(Windows: `npx.cmd`) 한 줄로 저장소 복제 없이 설치·갱신·제거할 수 있도록 `herdr-context-bridge` 실행 파일(`bin/herdr-context-bridge.mjs`)과 npm 공개 배포용 package 설정을 추가했습니다. 인자가 없거나 `--help`이면 사용법만 출력하고, 알 수 없는 명령·옵션·남는 인자는 아무것도 바꾸지 않고 오류로 끝냅니다.
 - Claude·Codex·AGY 사이의 여섯 방향 인계와 나머지 두 제공자 중 대상 선택을 지원합니다. 자동 등록 세션별 대상을 `autoTargets`에 저장하며, 기존 Claude↔Codex 자동 등록은 호환하고 AGY 원본은 명시적 대상을 요구합니다.
 - 공식 statusLine에서 관측한 AGY 세션의 ID·작업 폴더·transcript 경로를 연결하고, 현재 및 이전 `brain` 경로의 실제 경로와 ID를 검증합니다. 전체 `transcript_full.jsonl`의 raw·SHA-256·읽기 조각·인덱스를 보존하며, 압축본만 있으면 인계하지 않습니다. 미관측 과거 세션 전체 검색, 외부 첨부와 독립 subagent 원문의 별도 수집은 하지 않습니다.
 - 확인된 Claude `bypassPermissions`와 Codex의 승인 `never`·샌드박스 `danger-full-access`를 대상 Codex의 `--yolo` 또는 Claude·AGY의 `--dangerously-skip-permissions`로 전달합니다. AGY 원본은 공식 권한 정보가 없어 세션별 **인계 대상 권한**을 `default`·`bypass` 중 직접 선택하며, 기본값은 `default`입니다. AGY 대상에는 `--prompt-interactive`로 초기 프롬프트를 전달합니다.
@@ -27,7 +28,8 @@
 
 ### Changed
 
-- Claude·Codex 원본의 대상 실행 옵션은 최신 hook 또는 인계 bundle의 최신으로 확인된 `turn_context`를 기준으로 결정합니다. Codex는 업데이트된 helper가 관측한 현재 `SessionStart` 이후의 기록만 사용하며, 과거 실행 기록이나 내보내기 중 hook 상태가 바뀐 권한 판정은 무효화합니다. 일반 모드이거나 최신 권한 정보를 확인할 수 없으면 대상 CLI 기본값을 유지합니다. AGY 원본은 별도의 명시적 대상 권한 선택을 사용하며, 모든 권한 규칙은 매번 승인과 등록된 자동 인계에 동일하게 적용합니다. 기존 설치는 저장소 업데이트 후 `npm run install:mod`(Windows: `npm.cmd run install:mod`)를 다시 실행해 복사된 helper를 갱신해야 합니다.
+- 네 언어 README와 RECIPE의 기본 설치·갱신·제거 방법을 npx 명령으로 바꾸고, 기존 `git clone` 후 `npm run install:mod`·`uninstall:mod` 방식은 개발용 소스 설치로 남겼습니다. 두 방식은 같은 설치 기록을 사용하므로 서로 바꿔 재설치·제거할 수 있습니다.
+- Claude·Codex 원본의 대상 실행 옵션은 최신 hook 또는 인계 bundle의 최신으로 확인된 `turn_context`를 기준으로 결정합니다. Codex는 업데이트된 helper가 관측한 현재 `SessionStart` 이후의 기록만 사용하며, 과거 실행 기록이나 내보내기 중 hook 상태가 바뀐 권한 판정은 무효화합니다. 일반 모드이거나 최신 권한 정보를 확인할 수 없으면 대상 CLI 기본값을 유지합니다. AGY 원본은 별도의 명시적 대상 권한 선택을 사용하며, 모든 권한 규칙은 매번 승인과 등록된 자동 인계에 동일하게 적용합니다. 기존 설치는 `npx herdr-context-bridge@latest install`(Windows: `npx.cmd herdr-context-bridge@latest install`)을 다시 실행하거나, 소스 설치에서는 저장소 업데이트 후 `npm run install:mod`(Windows: `npm.cmd run install:mod`)를 다시 실행해 복사된 helper를 갱신해야 합니다.
 - AGY 수동·자동 인계는 10분 이내 공식 statusLine에서 `idle`이고 대기 입력·도구 승인·백그라운드 작업·실행 중 subagent가 없을 때만 허용합니다. 자동 인계는 기존처럼 원본·대상의 모든 사용량 창에 유효한 비율과 리셋 시각을 요구하며, 불확실한 AGY bucket을 임의로 제외하거나 기간을 추정하지 않습니다.
 - Herdr 설정 폴더를 공식 앱과 같은 `HERDR_APP_HOME` → `XDG_CONFIG_HOME/herdr-app` → 사용자 홈의 `.config/herdr-app` 순서로 선택합니다. Windows 홈은 `USERPROFILE`을 사용하며, bridge 상태는 그 아래 `.local/state/herdr-context-bridge`에 저장합니다. Windows 언어는 `LC_ALL`·`LC_MESSAGES`·`LANG`·`Intl` 순서로 감지합니다.
 - 인계는 `/usr/bin/env` 대신 Node 실행기로 인자·환경 변수를 전달합니다. Windows CLI는 `.exe`·`.com`과 표준 npm `.cmd` shim의 실제 대상을 직접 실행하며, 임의의 `.cmd`·`.bat` 실행기는 지원하지 않습니다. 기존 Claude 상태줄은 Windows에서 Git Bash가 있으면 사용하고 없으면 PowerShell로 실행하며, AGY는 기본 Windows 명령 셸을 유지합니다.

@@ -4,11 +4,11 @@
 
 Herdr で Claude Code・Codex・AGY（Antigravity CLI）のアカウント残量を確認し、上限が近づいたときに同じ作業フォルダの新しいターミナルへ作業履歴を引き継ぐ、macOS とネイティブ Windows 向けのローカルツールです。3 つのプロバイダー間の全 6 方向（Claude ↔ Codex、Claude ↔ AGY、Codex ↔ AGY）に対応します。既定は **毎回承認** です。自動引き継ぎは、選択した引き継ぎ元セッションに対してユーザーが明示的に有効にする必要があります。
 
-Node.js の組み込みモジュールのみを使用し、別の Web サーバーやパッケージのインストールは不要です。
+Node.js の組み込みモジュールのみを使用し、別の Web サーバーや外部の依存パッケージは不要です。
 
 公式インターフェースでアカウントの使用を確認したプロバイダーだけを表示します。Codex は使用量取得の成功、Claude/AGY は有効なステータスラインの割当量データが基準です。インストール・設定ファイルの存在や `authenticating` だけでは表示しません。既存の有効なキャッシュも認め、以後の取得失敗時には表示を維持して取得不可・古い情報を示します。これは観測履歴であり、現在のログイン状態の検査ではありません。
 
-既存の環境では `npm run install:mod` で更新してください。AGY の `~/.gemini/antigravity-cli/settings.json` に wrapper を追加し、元のコマンドの stdin・stdout・stderr・終了コードとユーザー設定を保持します。新規設定は標準ステータスラインの下に表示し、明示的に無効化した設定は変更しません。ログイン済みセッションから通常のデータが届くと表示され、テスト用プロンプトは不要です。**更新**は Claude/AGY の収集済みデータを再読込します。
+既存の環境では `npx herdr-context-bridge@latest install` で更新してください。AGY の `~/.gemini/antigravity-cli/settings.json` に wrapper を追加し、元のコマンドの stdin・stdout・stderr・終了コードとユーザー設定を保持します。新規設定は標準ステータスラインの下に表示し、明示的に無効化した設定は変更しません。ログイン済みセッションから通常のデータが届くと表示され、テスト用プロンプトは不要です。**更新**は Claude/AGY の収集済みデータを再読込します。
 
 AGY の公式 [`statusLine` の `quota`](https://antigravity.google/docs/cli/statusline/) を使用します。下部の要約には、ユーザーが代表項目に指定した Gemini4 Argon の `gemini-argon-wtu-weekly` だけを **AGY 週間 XX%** と表示し、ツールチップにモデル名・元の bucket ID・リセット時刻を示します。この bucket がなければ別の週間枠には切り替えず、**AGY 週間 —** と表示します。価格の自動判定ではなく、ユーザーが選んだ代表項目です。詳細と通知では全 bucket の元の名前と残り割合・リセットを維持します。期間の推測や bucket の合算はせず、`remaining_amount` だけの場合は割合を表示しません。無効な bucket は取得不可とします。AGY の通知からも、関連付けたセッションの引き継ぎを確認できます。bucket の値や期間が不明な場合は自動引き継ぎを保留しますが、手動確認は利用できます。
 
@@ -34,24 +34,20 @@ CI は `macos-latest` と `windows-latest` で Node.js 22.5・24 を使い、回
 
 ## インストールとアンインストール
 
-Herdr を一度起動して既定のレイアウトを作成し、リポジトリをクローンしてインストールします。macOS では次を実行します。
+Herdr を一度起動して既定のレイアウトを作成し、npx でインストールします。ソースを取得する必要はなく、インストールに必要なのは Node.js 22.5 以降だけです。macOS では次を実行します。
 
 ```sh
-git clone https://github.com/photojupi/herdr-context-bridge.git
-cd herdr-context-bridge
-npm run install:mod -- --dry-run
-npm run install:mod
+npx herdr-context-bridge@latest install --dry-run
+npx herdr-context-bridge@latest install
 herdr-app check ~/.config/herdr-app/mods/context-bridge
 herdr-app do layout.switch '{"name":"context-bridge"}'
 ```
 
-Windows では PowerShell を使います。
+Windows では PowerShell を使います。PowerShell の実行ポリシーが `npx.ps1` をブロックすることがあるため、`npx.cmd` を使います。
 
 ```powershell
-git clone https://github.com/photojupi/herdr-context-bridge.git
-cd herdr-context-bridge
-npm.cmd run install:mod -- --dry-run
-npm.cmd run install:mod
+npx.cmd herdr-context-bridge@latest install --dry-run
+npx.cmd herdr-context-bridge@latest install
 herdr-app check "$env:USERPROFILE/.config/herdr-app/mods/context-bridge"
 herdr-app do layout.switch --name context-bridge
 ```
@@ -60,7 +56,9 @@ herdr-app do layout.switch --name context-bridge
 
 既定ではインストーラーは個人用 mod と helper を `~/.config/herdr-app/mods/context-bridge/` にコピーし、既定の `main` レイアウトを複製した `layouts/context-bridge.json` の既存の下部ステータスバーと同じ行に残量の要約を配置します。ステータスバーの高さは維持し、ステータスバーがないレイアウトには下部に一行追加します。再インストールすると従来の右パネルをこの構成に置き換え、要約を重複させません。組み込み mod と元の `main.json` は変更しません。インストールコマンド自体は画面のレイアウトを切り替えません。
 
-リポジトリの更新後に `npm run install:mod`（Windows では `npm.cmd run install:mod`）を再実行すると、コピー済みの helper が更新され、権限モードの保持が適用されます。
+`herdr-context-bridge` を引数なし、または `--help` 付きで実行すると使い方だけを表示し、`--dryrun` のような不明なコマンドやオプションは何も変更せずにエラーで終了します。
+
+更新するときは `npx herdr-context-bridge@latest install`（Windows では `npx.cmd`）を再実行すると、コピー済みの helper が更新され、権限モードの保持が適用されます。`@latest` を省くと npx がキャッシュに残った古いバージョンを再利用することがあるため、付けたままにしてください。
 
 Claude の `~/.claude/settings.json` にステータスラインの wrapper と hooks を追加し、Codex の `~/.codex/hooks.json` に hooks、AGY の `~/.gemini/antigravity-cli/settings.json` にステータスラインの wrapper を追加します。既存の hooks は保持します。既存の Claude ステータスラインコマンドには元の stdin を渡し、出力と終了コードを維持します。初回の設定バックアップと変更ファイル一覧は `~/.local/state/herdr-context-bridge/install.json` に保存します。再インストール前にユーザーがステータスラインコマンドを変更した場合、その新しいコマンドを wrapper の呼び出し元コマンドとして使用し、初回のファイルバックアップは保持します。
 
@@ -72,19 +70,41 @@ Codex では `/hooks` など CLI の通常の手順で、インストールさ�
 
 ```sh
 herdr-app do layout.switch '{"name":"main"}'
-npm run uninstall:mod -- --dry-run
-npm run uninstall:mod
+npx herdr-context-bridge@latest uninstall --dry-run
+npx herdr-context-bridge@latest uninstall
 ```
 
 Windows では次を実行します。
 
 ```powershell
 herdr-app do layout.switch --name main
-npm.cmd run uninstall:mod -- --dry-run
-npm.cmd run uninstall:mod
+npx.cmd herdr-context-bridge@latest uninstall --dry-run
+npx.cmd herdr-context-bridge@latest uninstall
 ```
 
 アンインストーラーは追加した hooks とステータスラインの wrapper を取り除き、以前のコマンドを復元します。インストール後に変更したステータスラインのオプションと、無関係な設定は保持します。他の管理対象ファイルもインストール時の内容と一致する場合にのみ削除・復元し、ユーザーが変更したファイルは結果の `preserved` に表示して残します。**引き継ぎ原文・作業状態・バックアップはアンインストール後も保持されます。** 最後のインストール記録は、同じデータフォルダの `last-install.json` に残ります。
+
+### ソースからのインストール（開発用）
+
+このリポジトリを変更しながら作業する場合は、リポジトリをクローンして代わりに npm スクリプトを使います。macOS では次を実行します。
+
+```sh
+git clone https://github.com/photojupi/herdr-context-bridge.git
+cd herdr-context-bridge
+npm run install:mod -- --dry-run
+npm run install:mod
+```
+
+Windows PowerShell では次を実行します。
+
+```powershell
+git clone https://github.com/photojupi/herdr-context-bridge.git
+cd herdr-context-bridge
+npm.cmd run install:mod -- --dry-run
+npm.cmd run install:mod
+```
+
+続けて、上と同じ `herdr-app check` と `layout.switch` のコマンドを実行します。変更を取り込んだ後は `npm run install:mod` を再実行し、アンインストールには `npm run uninstall:mod -- --dry-run` と `npm run uninstall:mod`（Windows では `npm.cmd`）を使います。両方の方法は `~/.local/state/herdr-context-bridge/install.json` のインストール記録を共有するため、ソースからインストールしたものを npx で再インストール・アンインストールしても、その逆でも構いません。
 
 ## 使い方
 
@@ -150,10 +170,14 @@ AGY の公式ステータスラインは現在の権限モードを提供しな�
 | `npm test` | ローカル回帰テスト |
 | `npm run check` | JavaScript の構文検査 |
 | `node scripts/smoke.mjs` | 一時 HOME と偽 CLI で手動・自動引き継ぎ全体の実行境界を検証 |
-| `npm run install:mod -- --dry-run` | インストールで変更するパスを確認 |
-| `npm run install:mod` | 個人用 mod・helper・レイアウト・hooks のインストールまたは更新 |
-| `npm run uninstall:mod -- --dry-run` | 削除・保持する対象を確認 |
-| `npm run uninstall:mod` | インストールによる変更を取り除き、データは保持 |
+| `npx herdr-context-bridge@latest install --dry-run` | インストールで変更するパスを確認 |
+| `npx herdr-context-bridge@latest install` | 個人用 mod・helper・レイアウト・hooks のインストールまたは更新 |
+| `npx herdr-context-bridge@latest uninstall --dry-run` | 削除・保持する対象を確認 |
+| `npx herdr-context-bridge@latest uninstall` | インストールによる変更を取り除き、データは保持 |
+| `npm run install:mod -- --dry-run` | 開発用：クローンからインストールで変更するパスを確認 |
+| `npm run install:mod` | 開発用：クローンからインストールまたは更新 |
+| `npm run uninstall:mod -- --dry-run` | 開発用：クローンから削除・保持する対象を確認 |
+| `npm run uninstall:mod` | 開発用：クローンからインストールによる変更を取り除き、データは保持 |
 | `node src/cli.mjs status` | 使用量・関連付け・jobs を取得し、現在の自動ポリシーを評価 |
 | `node src/cli.mjs locale` | 検出した表示言語を読み取り専用で取得 |
 | `node src/cli.mjs config` | 現在の設定を取得 |
@@ -163,6 +187,8 @@ AGY の公式ステータスラインは現在の権限モードを提供しな�
 | `node src/cli.mjs bind '<JSON>'` | `terminalId`、`provider`、`id`、`cwd` で候補を関連付け。AGY ではセッションごとの `handoffPermissionMode`（`default` / `bypass`）も選択可能 |
 | `node src/cli.mjs handoff '<JSON>'` | `sourceKey`、`target`、`automatic:false`、任意の `space` で手動引き継ぎを要求 |
 | `node src/cli.mjs job <jobId>` | 特定の引き継ぎジョブを取得 |
+
+`node src/cli.mjs` のコマンドはリポジトリのクローンで実行します。npx でインストールした場合は、同じコマンドをインストール済みの helper で実行してください。例: `node ~/.config/herdr-app/mods/context-bridge/helper/cli.mjs status`（Windows では `node "$env:USERPROFILE/.config/herdr-app/mods/context-bridge/helper/cli.mjs" status`）。
 
 公開の取得・設定・引き継ぎコマンドは JSON を出力し、エラー時は `{ "error": "…" }` と失敗の終了コードを返します。`capture`、`statusline`、`worker`、`launch` はインストールされた hooks と helper が使う内部コマンドです。`status` は自動モードでは実行を引き起こす場合があるため、読み取り専用コマンドとして扱わないでください。
 
