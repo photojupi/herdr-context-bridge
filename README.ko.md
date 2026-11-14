@@ -93,7 +93,7 @@ Codex에서는 설치한 hooks를 `/hooks` 등 CLI의 정상 절차로 신뢰해
 
 위 경로는 기본 Herdr 설정 폴더 기준입니다. 설치기는 [Herdr의 `app_dir()`](https://github.com/herdrdev/herdr-app/blob/master/src/mods.rs)와 같이 `HERDR_APP_HOME`, `XDG_CONFIG_HOME/herdr-app`, Windows의 `USERPROFILE/.config/herdr-app` 또는 macOS의 `HOME/.config/herdr-app` 순서로 선택합니다. 경로를 재정의했다면 `herdr-app check`에도 그 폴더를 사용하세요. 이 문서의 `~`는 해당 사용자 홈 폴더를 뜻합니다.
 
-기본 설정에서 설치기는 개인 mod와 helper를 `~/.config/herdr-app/mods/context-bridge/`에 복사하고, 기본 `main` 레이아웃을 복제한 `layouts/context-bridge.json`의 기존 하단 상태바 옆에 잔여량 요약을 배치합니다. 기존 상태바 높이는 유지하며, 상태바가 없는 레이아웃에는 하단 한 줄을 추가합니다. 재설치하면 기존 우측 패널을 이 구성으로 교체하고 요약을 중복으로 만들지 않습니다. 내장 mod와 원본 `main.json`은 수정하지 않습니다. 설치 명령 자체는 화면 레이아웃을 전환하지 않습니다.
+기본 설정에서 설치기는 개인 mod와 helper를 `~/.config/herdr-app/mods/context-bridge/`에 복사하고, 기본 `main` 레이아웃을 복제한 `layouts/context-bridge.json`의 기존 하단 상태바 옆에 잔여량 요약을 배치합니다. 기존 상태바 높이는 유지하며, 상태바가 없는 레이아웃에는 하단 한 줄을 추가합니다. 재설치하면 기존 `layouts/context-bridge.json`의 다른 사용자 수정은 유지한 채 Context Bridge 노드만 갱신하며(이전 우측 패널은 하단 구성으로 교체하고 요약을 중복으로 만들지 않음), 내장 mod와 원본 `main.json`은 수정하지 않습니다. 설치 명령 자체는 화면 레이아웃을 전환하지 않습니다.
 
 Claude의 `~/.claude/settings.json`에 상태줄 wrapper와 hooks를 추가하고, Codex의 `~/.codex/hooks.json`에 hooks를 추가합니다. 기존 hooks는 유지합니다. 기존 Claude 상태줄 명령에는 원래 stdin을 전달하고 출력과 종료 코드를 유지합니다. 최초 설정 백업과 변경 파일 목록은 `~/.local/state/herdr-context-bridge/install.json`에 저장합니다. 재설치 전 사용자가 상태줄 명령을 바꿨다면 그 새 명령을 wrapper의 원본으로 사용하며 최초 파일 백업은 보존합니다.
 
@@ -119,7 +119,7 @@ npx.cmd herdr-context-bridge@latest uninstall --dry-run
 npx.cmd herdr-context-bridge@latest uninstall
 ```
 
-제거기는 추가한 hooks와 상태줄 wrapper를 걷어 내고 기존 명령을 복원합니다. 설치 후 변경한 상태줄 옵션과 무관한 설정은 유지합니다. 다른 관리 파일도 설치 당시 내용과 같을 때만 제거·복원하며, 사용자가 바꾼 파일은 결과의 `preserved`에 표시하고 남겨 둡니다. **인계 원문·작업 상태·백업은 제거 후에도 보관**합니다. 마지막 설치 기록은 같은 데이터 폴더의 `last-install.json`에 남습니다.
+제거기는 추가한 hooks와 상태줄 wrapper를 걷어 내고 기존 명령을 복원합니다. 설치 후 변경한 상태줄 옵션과 무관한 설정은 유지합니다. 다른 관리 파일도 설치 당시 내용과 같을 때만 제거·복원하며, 사용자가 바꾼 파일은 결과의 `preserved`에 표시하고 남겨 둡니다(수정한 `layouts/context-bridge.json`에서는 Context Bridge 요약 노드만 제거합니다). **인계 원문·작업 상태·백업은 제거 후에도 보관**합니다. 마지막 설치 기록은 같은 데이터 폴더의 `last-install.json`에 남습니다.
 
 ### 소스에서 설치(개발용)
 

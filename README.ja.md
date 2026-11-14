@@ -96,7 +96,7 @@ Codex では `/hooks` など CLI の通常の手順で、インストールさ�
 
 上のパスは Herdr の既定の設定フォルダを前提としています。インストーラーは [Herdr の `app_dir()`](https://github.com/herdrdev/herdr-app/blob/master/src/mods.rs) に従い、`HERDR_APP_HOME`、`XDG_CONFIG_HOME/herdr-app`、Windows の `USERPROFILE/.config/herdr-app` または macOS の `HOME/.config/herdr-app` の順に選びます。上書き設定がある場合は `herdr-app check` にもそのフォルダを指定してください。この文書の `~` は各ユーザーのホームフォルダです。
 
-既定ではインストーラーは個人用 mod と helper を `~/.config/herdr-app/mods/context-bridge/` にコピーし、既定の `main` レイアウトを複製した `layouts/context-bridge.json` の既存の下部ステータスバーと同じ行に残量の要約を配置します。ステータスバーの高さは維持し、ステータスバーがないレイアウトには下部に一行追加します。再インストールすると従来の右パネルをこの構成に置き換え、要約を重複させません。組み込み mod と元の `main.json` は変更しません。インストールコマンド自体は画面のレイアウトを切り替えません。
+既定ではインストーラーは個人用 mod と helper を `~/.config/herdr-app/mods/context-bridge/` にコピーし、既定の `main` レイアウトを複製した `layouts/context-bridge.json` の既存の下部ステータスバーと同じ行に残量の要約を配置します。ステータスバーの高さは維持し、ステータスバーがないレイアウトには下部に一行追加します。再インストール時は既存の `layouts/context-bridge.json` に対する他の編集を保持したまま Context Bridge のノードだけを更新し（従来の右パネルは下部構成に置き換え、要約を重複させません）、組み込み mod と元の `main.json` は変更しません。インストールコマンド自体は画面のレイアウトを切り替えません。
 
 Claude の `~/.claude/settings.json` にステータスラインの wrapper と hooks を追加し、Codex の `~/.codex/hooks.json` に hooks、AGY の `~/.gemini/antigravity-cli/settings.json` にステータスラインの wrapper を追加します。既存の hooks は保持します。既存の Claude ステータスラインコマンドには元の stdin を渡し、出力と終了コードを維持します。初回の設定バックアップと変更ファイル一覧は `~/.local/state/herdr-context-bridge/install.json` に保存します。再インストール前にユーザーがステータスラインコマンドを変更した場合、その新しいコマンドを wrapper の呼び出し元コマンドとして使用し、初回のファイルバックアップは保持します。
 
@@ -120,7 +120,7 @@ npx.cmd herdr-context-bridge@latest uninstall --dry-run
 npx.cmd herdr-context-bridge@latest uninstall
 ```
 
-アンインストーラーは追加した hooks とステータスラインの wrapper を取り除き、以前のコマンドを復元します。インストール後に変更したステータスラインのオプションと、無関係な設定は保持します。他の管理対象ファイルもインストール時の内容と一致する場合にのみ削除・復元し、ユーザーが変更したファイルは結果の `preserved` に表示して残します。**引き継ぎ原文・作業状態・バックアップはアンインストール後も保持されます。** 最後のインストール記録は、同じデータフォルダの `last-install.json` に残ります。
+アンインストーラーは追加した hooks とステータスラインの wrapper を取り除き、以前のコマンドを復元します。インストール後に変更したステータスラインのオプションと、無関係な設定は保持します。他の管理対象ファイルもインストール時の内容と一致する場合にのみ削除・復元し、ユーザーが変更したファイルは結果の `preserved` に表示して残します（編集された `layouts/context-bridge.json` では Context Bridge の要約ノードだけを取り除きます）。**引き継ぎ原文・作業状態・バックアップはアンインストール後も保持されます。** 最後のインストール記録は、同じデータフォルダの `last-install.json` に残ります。
 
 ### ソースからのインストール（開発用）
 

@@ -2,6 +2,7 @@ import {readFile,writeFile,mkdir,readdir,unlink} from 'node:fs/promises';
 import {join,dirname,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
+import {isDeepStrictEqual} from 'node:util';
 import {atomicJson,readJson,homeDirectory} from '../src/storage.mjs';
 import {t} from '../src/i18n.mjs';
 
@@ -39,6 +40,34 @@ function removeHooks(settings,command,original) {
   }
   if(result.hooks&&!Object.keys(result.hooks).length&&!Object.hasOwn(original,'hooks')) delete result.hooks;
   return result;
+}
+const isBridgeNode=node=>node?.id==='context-bridge-summary'||node?.id==='context-bridge-panel';
+function stripSummary(node) {
+  if(!Array.isArray(node?.children)) return node;
+  const children=[];
+  for(const raw of node.children) {
+    if(isBridgeNode(raw)) continue;
+    const child=stripSummary(raw);
+    if(child.id==='context-bridge-status-row'&&Array.isArray(child.children)) {
+      const rest=child.children.filter(c=>!isBridgeNode(c));
+      if(!rest.length) continue;
+      if(rest.length===1&&rest[0].type==='block'&&rest[0].content?.mod==='workspace-status') {
+        const {size:_s,min:_m,max:_x,...status}=rest[0];
+        children.push({...status,...(child.size===undefined?{}:{size:child.size}),...(child.min===undefined?{}:{min:child.min}),...(child.max===undefined?{}:{max:child.max})});
+        continue;
+      }
+      children.push({...child,children:rest});
+      continue;
+    }
+    children.push(child);
+  }
+  const next={...node,children};
+  if(next.id==='bridge-root'&&children.length===1) {
+    const inner={...children[0]};
+    if(next.cloned_from&&!Object.hasOwn(inner,'cloned_from')) inner.cloned_from=next.cloned_from;
+    return inner;
+  }
+  return next;
 }
 function addSummary(layout,summary) {
   for(const [index,child] of (layout.children||[]).entries()) {
@@ -82,10 +111,13 @@ export async function install(options={}) {
   const newAgy={...agy,statusLine:{...(agy.statusLine||{}),...(!agyWrapped&&agyDefaultStack?{stack_with_default:true}:{}),type:'command',command:agyStatusCommand}};
   const baseName=options.layoutName||previous?.baseLayout||'main';
   if(!/^[a-zA-Z0-9_-]+$/.test(baseName)) throw new Error(t('잘못된 레이아웃 이름입니다.'));
-  const base=await readJson(join(appHome,'layouts',baseName+'.json'));
+  const layoutPath=join(appHome,'layouts/context-bridge.json');
+  const existingLayout=options.layoutName&&options.layoutName!==previous?.baseLayout?null:await readJson(layoutPath);
+  const base=existingLayout??await readJson(join(appHome,'layouts',baseName+'.json'));
   if(!base) throw new Error(t('먼저 herdr-app을 한 번 실행해 주세요.'));
-  const clone=structuredClone(base);
-  clone.cloned_from={name:baseName,version:'0.1.10'};
+  const clone=stripSummary(structuredClone(base));
+  if(!existingLayout) clone.cloned_from={name:baseName,version:'0.1.10'};
+  else clone.cloned_from ??= {name:baseName,version:'0.1.10'};
   const summary={id:'context-bridge-summary',type:'block',size:{px:640},min:0,max:640,content:{mod:'context-bridge',props:{role:'summary',node:process.execPath,helper}}};
   let layout=clone;
   if(!addSummary(clone,summary)) {
@@ -99,7 +131,7 @@ export async function install(options={}) {
   const writes=[];
   for(const relative of await filesUnder(join(projectDir,'mods/context-bridge'))) if(relative==='mod.json'||relative.endsWith('.js')) writes.push({path:join(modDir,relative),bytes:await readFile(join(projectDir,'mods/context-bridge',relative))});
   for(const relative of await filesUnder(join(projectDir,'src'))) if(relative.endsWith('.mjs')) writes.push({path:join(modDir,'helper',relative),bytes:await readFile(join(projectDir,'src',relative))});
-  writes.push({path:join(appHome,'layouts/context-bridge.json'),bytes:Buffer.from(JSON.stringify(layout,null,2)+'\n')});
+  writes.push({path:layoutPath,bytes:Buffer.from(JSON.stringify(layout,null,2)+'\n')});
   writes.push({path:claudePath,bytes:Buffer.from(JSON.stringify(newClaude,null,2)+'\n'),config:true});
   writes.push({path:codexPath,bytes:Buffer.from(JSON.stringify(newCodex,null,2)+'\n'),config:true});
   writes.push({path:agyPath,bytes:Buffer.from(JSON.stringify(newAgy,null,2)+'\n'),config:true});
@@ -155,11 +187,27 @@ export async function uninstall(options={}) {
       else await unlink(manifest.agyPath).catch(()=>{});
     }
   }
+  const layoutPath=manifest.appHome?join(manifest.appHome,'layouts/context-bridge.json'):null;
+  const baseLayout=layoutPath?await readJson(join(manifest.appHome,'layouts',(manifest.baseLayout||'main')+'.json')):null;
+  const withoutOrigin=value=>{if(!value||typeof value!=='object')return value;const {cloned_from:_c,...rest}=value;return rest;};
   for(const [path,record] of Object.entries(manifest.files)) {
     if(record.config) continue;
     const current=await maybe(path);
     if(!current) continue;
-    if(digest(current)!==record.afterHash){preserved.push(path);continue;}
+    let keep=digest(current)!==record.afterHash,parsedLayout=null,strippedLayout=null;
+    if(path===layoutPath) {
+      try {
+        parsedLayout=JSON.parse(current.toString('utf8'));
+        strippedLayout=stripSummary(parsedLayout);
+        const reference=record.before!==null?JSON.parse(Buffer.from(record.before,'base64').toString('utf8')):baseLayout;
+        if(reference&&!isDeepStrictEqual(withoutOrigin(strippedLayout),withoutOrigin(stripSummary(reference)))) keep=true;
+      } catch { keep=true; }
+    }
+    if(keep) {
+      if(path===layoutPath&&!options.dryRun&&strippedLayout&&!isDeepStrictEqual(strippedLayout,parsedLayout)) await atomicJson(path,strippedLayout);
+      preserved.push(path);
+      continue;
+    }
     removed.push(path);
     if(!options.dryRun) {if(record.before!==null) await writeFile(path,Buffer.from(record.before,'base64'));else await unlink(path);}
   }

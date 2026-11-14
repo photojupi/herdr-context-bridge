@@ -28,7 +28,7 @@ Claude Code·Codex·AGY 잔여량을 하단에서 함께 보고, 원본을 유�
 
 ## Built from — 구성
 
-- 설치기는 기본 `main` 레이아웃을 복사해 개인 `context-bridge` 레이아웃을 만듭니다. 기존 상태바를 같은 높이의 행으로 감싸 상태바와 요약을 나란히 배치합니다. 상태바가 없으면 하단 한 줄을 추가합니다. 재설치 시 기존 우측 패널을 이 구성으로 교체하며 요약을 중복으로 만들지 않습니다. 내장 mod와 원본 `main` 레이아웃은 수정하지 않습니다.
+- 설치기는 기본 `main` 레이아웃을 복사해 개인 `context-bridge` 레이아웃을 만듭니다. 기존 상태바를 같은 높이의 행으로 감싸 상태바와 요약을 나란히 배치합니다. 상태바가 없으면 하단 한 줄을 추가합니다. 재설치 시 기존 `context-bridge` 레이아웃의 다른 사용자 수정은 유지한 채 Context Bridge 노드만 갱신하며(이전 우측 패널은 하단 구성으로 교체하고 요약을 중복으로 만들지 않음), 내장 mod와 원본 `main` 레이아웃은 수정하지 않습니다.
 - `mods/context-bridge/main.js`가 하단 요약과 상세·인계 확인 대화상자를 그립니다. 기본 props의 `node`와 `helper`는 설치 시 절대 경로입니다. 기존 인계 확인에서 원본·대상·폴더·보존 범위를 검토하는 흐름은 유지합니다.
 - `ui-logic.js`는 사용량 신선도·주기별 알림·로컬 터미널 후보를 판단합니다. `mod.json`의 `place: "none"`으로 자동 도킹하지 않고 레이아웃 block에서 배치합니다.
 - `herdr`의 `panes`, `spaces`, `agents`, `exec`, `props`, `theme`, `shared`, `setShared`, `notify`, `openOverlay`, `closeOverlay`, `nextCommand`를 사용합니다. UI 타이머와 비동기 작업은 View context에서 실행합니다.

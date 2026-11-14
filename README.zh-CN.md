@@ -96,7 +96,7 @@ Codex 可能要求通过 `/hooks` 等 CLI 正常流程信任已安装的 hooks�
 
 上述路径假定使用默认 Herdr 配置目录。安装程序遵循 [Herdr 的 `app_dir()`](https://github.com/herdrdev/herdr-app/blob/master/src/mods.rs)，依次使用 `HERDR_APP_HOME`、`XDG_CONFIG_HOME/herdr-app`，最后是 Windows 的 `USERPROFILE/.config/herdr-app` 或 macOS 的 `HOME/.config/herdr-app`。若设置了覆盖路径，`herdr-app check` 也应使用该目录。本文中的 `~` 表示相应的用户主目录。
 
-默认情况下，安装程序会将个人 mod 和 helper 复制到 `~/.config/herdr-app/mods/context-bridge/`，并在默认 `main` 布局的副本 `layouts/context-bridge.json` 中，将额度摘要放在现有底部状态栏的同一行。保持状态栏原有高度；没有状态栏的布局会新增底部一行。重新安装会将原右侧面板替换为此布局，不会重复添加摘要。不会修改内置 mod 或原始 `main.json`。安装命令本身不会切换当前显示的布局。
+默认情况下，安装程序会将个人 mod 和 helper 复制到 `~/.config/herdr-app/mods/context-bridge/`，并在默认 `main` 布局的副本 `layouts/context-bridge.json` 中，将额度摘要放在现有底部状态栏的同一行。保持状态栏原有高度；没有状态栏的布局会新增底部一行。重新安装时会保留现有 `layouts/context-bridge.json` 中的其他自定义修改，仅更新 Context Bridge 节点（将原右侧面板替换为底部布局且不会重复添加摘要）。不会修改内置 mod 或原始 `main.json`。安装命令本身不会切换当前显示的布局。
 
 安装程序会在 Claude 的 `~/.claude/settings.json` 中添加状态栏 wrapper 和 hooks，在 Codex 的 `~/.codex/hooks.json` 中添加 hooks，并在 AGY 的 `~/.gemini/antigravity-cli/settings.json` 中添加状态栏 wrapper。保留已有 hooks。原有 Claude 状态栏命令仍会收到原始 stdin，其输出和退出码也会保留。首次配置备份和变更文件列表保存在 `~/.local/state/herdr-context-bridge/install.json`。如果用户在重新安装前修改了状态栏命令，wrapper 会改用该新命令作为原始命令，同时保留首次文件备份。
 
@@ -120,7 +120,7 @@ npx.cmd herdr-context-bridge@latest uninstall --dry-run
 npx.cmd herdr-context-bridge@latest uninstall
 ```
 
-卸载程序会移除添加的 hooks 和状态栏 wrapper，恢复原有命令。安装后修改的状态栏选项及无关设置会保留。其他受管理文件也仅在内容与安装时一致的情况下才会被删除或恢复；用户修改过的文件会保留，并在结果的 `preserved` 中列出。**卸载后仍保留交接原文、工作状态和备份。** 最后一次安装记录会保存在同一数据目录的 `last-install.json` 中。
+卸载程序会移除添加的 hooks 和状态栏 wrapper，恢复原有命令。安装后修改的状态栏选项及无关设置会保留。其他受管理文件也仅在内容与安装时一致的情况下才会被删除或恢复；用户修改过的文件会保留，并在结果的 `preserved` 中列出（对于已自定义的 `layouts/context-bridge.json`，仅移除 Context Bridge 摘要节点）。**卸载后仍保留交接原文、工作状态和备份。** 最后一次安装记录会保存在同一数据目录的 `last-install.json` 中。
 
 ### 从源码安装（开发用）
 

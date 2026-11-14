@@ -69,6 +69,41 @@ test('reinstall replaces a previous right panel from the saved main layout witho
   assert.equal(blocks(once).some(node=>node.id==='context-bridge-panel'),false);
   assert.equal(JSON.parse(await readFile(join(o.stateDir,'install.json'),'utf8')).baseLayout,'main');
 });
+test('reinstall and uninstall preserve other mod wiring added to context-bridge.json',async()=>{
+  const base=structuredClone(workspaceLayout);
+  base.children[1].children[1].children.push({
+    id:'panel',type:'column',hidden:true,size:{px:368},
+    children:[{id:'panel-body',type:'stack',active:'files',children:[
+      {id:'files',type:'block',content:{mod:'files'}},
+      {id:'changes',type:'block',content:{mod:'changes'}},
+    ]}],
+  });
+  const o=await fixture(base),layoutPath=join(o.appHome,'layouts/context-bridge.json');
+  await install(o);
+  const edited=await installedLayout(o);
+  edited.children[1].children[0].content.mod='tabs-source-control';
+  edited.children[1].children[1].children[1].children[0].children.push({id:'source-control',type:'block',content:{mod:'source-control'}});
+  await writeFile(layoutPath,JSON.stringify(edited,null,2)+'\n');
+
+  await install(o);
+  const afterReinstall=await installedLayout(o);
+  assert.equal(afterReinstall.children[1].children[0].content.mod,'tabs-source-control');
+  assert.deepEqual(afterReinstall.children[1].children[1].children[1].children[0].children.at(-1),{id:'source-control',type:'block',content:{mod:'source-control'}});
+  assert.equal(blocks(afterReinstall).filter(node=>node.id==='context-bridge-summary').length,1);
+
+  const preview=await readFile(layoutPath,'utf8');
+  const dry=await uninstall({...o,dryRun:true});
+  assert.ok(dry.preserved.includes(layoutPath));
+  assert.equal(await readFile(layoutPath,'utf8'),preview);
+
+  const result=await uninstall(o);
+  assert.ok(result.preserved.includes(layoutPath));
+  const afterUninstall=await installedLayout(o);
+  assert.equal(afterUninstall.children[1].children[0].content.mod,'tabs-source-control');
+  assert.deepEqual(afterUninstall.children[1].children[1].children[1].children[0].children.at(-1),{id:'source-control',type:'block',content:{mod:'source-control'}});
+  assert.equal(blocks(afterUninstall).some(node=>node.id==='context-bridge-summary'||node.id==='context-bridge-status-row'),false);
+  assert.deepEqual(afterUninstall.children[1].children[2],workspaceLayout.children[1].children[2]);
+});
 test('layouts without a status bar get one bottom row and retain root window properties',async()=>{
   for(const type of ['row','column','block']) {
     const base={id:'custom-root',type,titlebar:'none',traffic_lights:[10,15],background:'canvas',terminal_padding:[9,7],terminal_menu:{position:'bottom'},preview:{background:'canvas'},divider:{width:1,color:'border'},
@@ -76,6 +111,8 @@ test('layouts without a status bar get one bottom row and retain root window pro
     const o=await fixture(base),before=await readFile(join(o.appHome,'layouts/main.json'));
     await install(o);
     const layout=await installedLayout(o),nodes=blocks(layout);
+    await install(o);
+    assert.deepEqual(await installedLayout(o),layout);
     assert.equal(layout.type,'column');
     const bottom=layout.children.at(-1);
     assert.deepEqual(bottom.size,{px:28});
