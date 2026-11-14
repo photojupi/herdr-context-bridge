@@ -2,6 +2,8 @@
 
 [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
 
+[![npm version](https://img.shields.io/npm/v/herdr-context-bridge)](https://www.npmjs.com/package/herdr-context-bridge)
+
 A local macOS and native Windows tool for checking Claude Code, Codex, and AGY (Antigravity CLI) account quotas in Herdr. Work history can be handed off in all six directions between Claude, Codex, and AGY to a new terminal in the same working directory when a limit runs low. The default is **Ask every time**. Automatic handoff must be enabled explicitly for a source session you select.
 
 It uses only Node.js built-in modules, with no separate web server or third-party dependencies.
@@ -11,6 +13,24 @@ Providers appear after this helper observes account usage through an official in
 ![Illustration with example data showing the quota summary and handoff details](docs/images/context-bridge-preview.svg)
 
 *Illustration with example data; not an actual screenshot.*
+
+## Quick start
+
+Launch the Herdr app once and make sure Node.js 22.5 or newer is installed. There is no repository to clone and nothing else to download. On macOS:
+
+```sh
+npx herdr-context-bridge@latest install
+herdr-app do layout.switch '{"name":"context-bridge"}'
+```
+
+On Windows (PowerShell):
+
+```powershell
+npx.cmd herdr-context-bridge@latest install
+herdr-app do layout.switch --name context-bridge
+```
+
+The first command installs the mod, helper, and hooks. The second switches to the layout with the quota summary. Usage appears after each signed-in CLI reports it; installing alone does not show it. Add `--dry-run` to preview the files to be changed, rerun the same `install` command to update, and use `uninstall` to remove. For details, see [Installation and removal](#installation-and-removal) and [Requirements](#requirements).
 
 ## Languages
 
@@ -31,31 +51,49 @@ Remote Herdr machines and simultaneous management of multiple authentication pro
 
 ## Installation and removal
 
+### Install
+
 Launch Herdr once to create its default layout, then install with npx. You do not need to download the source; installation requires only Node.js 22.5 or newer. On macOS:
 
 ```sh
+# Preview the files to be changed (optional)
 npx herdr-context-bridge@latest install --dry-run
+# Install the mod, helper, layout, and hooks
 npx herdr-context-bridge@latest install
+# Check the installed mod (optional)
 herdr-app check ~/.config/herdr-app/mods/context-bridge
+# Switch to the layout with the quota summary
 herdr-app do layout.switch '{"name":"context-bridge"}'
 ```
 
 On Windows, use PowerShell. Use `npx.cmd`, because the PowerShell execution policy can block `npx.ps1`:
 
 ```powershell
+# Preview the files to be changed (optional)
 npx.cmd herdr-context-bridge@latest install --dry-run
+# Install the mod, helper, layout, and hooks
 npx.cmd herdr-context-bridge@latest install
+# Check the installed mod (optional)
 herdr-app check "$env:USERPROFILE/.config/herdr-app/mods/context-bridge"
+# Switch to the layout with the quota summary
 herdr-app do layout.switch --name context-bridge
 ```
+
+After installation:
+
+Codex may require you to trust installed hooks through its normal CLI procedure, such as `/hooks`. Existing sessions may not load new hooks immediately; use manual session binding below. Installing alone does not produce Claude usage data: it appears after an API response supplies statusline input in that session.
+
+Running `herdr-context-bridge` without arguments or with `--help` only prints usage, and an unknown command or option, such as `--dryrun`, changes nothing and exits with an error.
+
+### Update
+
+To update, rerun `npx herdr-context-bridge@latest install` (`npx.cmd` on Windows) to update the copied helper and enable AGY handoff and permission-mode handling. Keep `@latest`, because npx may otherwise reuse an older cached version.
+
+### What the installer changes
 
 The paths above assume the default Herdr configuration directory. Following [Herdr's `app_dir()`](https://github.com/herdrdev/herdr-app/blob/master/src/mods.rs), the installer uses `HERDR_APP_HOME`, then `XDG_CONFIG_HOME/herdr-app`, then `USERPROFILE/.config/herdr-app` on Windows or `HOME/.config/herdr-app` on macOS. If you set an override, use that directory in `herdr-app check` too. In this document, `~` means the corresponding user home directory.
 
 By default, the installer copies the personal mod and helper to `~/.config/herdr-app/mods/context-bridge/` and places the quota summary alongside the existing bottom status bar in `layouts/context-bridge.json`, a copy of the default `main` layout. The row keeps the existing status bar height; a layout without a status bar gets one bottom row. Reinstalling replaces the former right panel with this layout without duplicating the summary. Built-in mods and the original `main.json` remain unchanged. The installation command itself does not switch the visible layout.
-
-Running `herdr-context-bridge` without arguments or with `--help` only prints usage, and an unknown command or option, such as `--dryrun`, changes nothing and exits with an error.
-
-To update, rerun `npx herdr-context-bridge@latest install` (`npx.cmd` on Windows) to update the copied helper and enable AGY handoff and permission-mode handling. Keep `@latest`, because npx may otherwise reuse an older cached version.
 
 It adds a statusline wrapper and hooks to Claude's `~/.claude/settings.json`, and hooks to Codex's `~/.codex/hooks.json`. Existing hooks are preserved. The original Claude statusline command receives the original stdin, and its output and exit code are preserved. Initial configuration backups and a list of changed files are saved in `~/.local/state/herdr-context-bridge/install.json`. If you change the statusline command before reinstalling, the wrapper uses that new command as its original while preserving the initial file backup.
 
@@ -63,7 +101,7 @@ On Windows, the original Claude statusline runs through Git Bash when available,
 
 For AGY, it adds a wrapper to `~/.gemini/antigravity-cli/settings.json`. The original command's stdin, stdout, stderr, and exit code are preserved, as are existing statusline options. A new statusline stacks below AGY's built-in display. An explicitly disabled statusline stays disabled. Reinstall with `npx herdr-context-bridge@latest install` to add AGY support to an existing installation, then let your signed-in AGY session supply its normal statusline data. No test prompt is required. Before the first valid observation the provider stays hidden; **Refresh** only rereads Claude/AGY's collected data.
 
-Codex may require you to trust installed hooks through its normal CLI procedure, such as `/hooks`. Existing sessions may not load new hooks immediately; use manual session binding below. Installing alone does not produce Claude usage data: it appears after an API response supplies statusline input in that session.
+### Uninstall
 
 Before removal, switch back to your original layout. This example uses the default `main`.
 
