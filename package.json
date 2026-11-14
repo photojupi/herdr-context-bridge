@@ -1,11 +1,22 @@
 {
   "name": "herdr-context-bridge",
   "version": "0.1.0",
-  "private": true,
   "license": "MIT",
   "type": "module",
   "description": "Claude/Codex/AGY usage monitoring and context handoff for herdr-app",
+  "repository": { "type": "git", "url": "git+https://github.com/photojupi/herdr-context-bridge.git" },
   "engines": { "node": ">=22.5.0" },
+  "bin": { "herdr-context-bridge": "bin/herdr-context-bridge.mjs" },
+  "files": [
+    "bin",
+    "scripts/install.mjs",
+    "src",
+    "mods",
+    "README.ko.md",
+    "README.ja.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "test": "node --test \"test/*.test.mjs\"",
     "check": "node scripts/check.mjs",

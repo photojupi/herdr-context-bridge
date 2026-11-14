@@ -37,9 +37,9 @@ Claude Code·Codex·AGY 잔여량을 하단에서 함께 보고, 원본을 유�
 
 ## Watch out — 설치와 운영
 
-[한국어 README의 설치·제거 절차](README.ko.md#설치와-제거)를 따릅니다. `npm run install:mod -- --dry-run`으로 경로를 확인하고 설치 후 `herdr-app check`와 `layout.switch`를 별도로 실행합니다. 저장소 업데이트 후에는 `npm run install:mod`를 다시 실행해 복사된 helper를 갱신합니다. 원래 레이아웃으로 복귀한 후 제거할 수 있으며 인계 기록은 남습니다.
+[한국어 README의 설치·제거 절차](README.ko.md#설치와-제거)를 따릅니다. `npx herdr-context-bridge@latest install --dry-run`으로 경로를 확인하고 설치 후 `herdr-app check`와 `layout.switch`를 별도로 실행합니다. 갱신할 때는 `npx herdr-context-bridge@latest install`을 다시 실행해 복사된 helper를 갱신합니다. 저장소 복제본에서는 개발용으로 `npm run install:mod`를 사용할 수 있으며 두 방식은 설치 기록을 공유합니다. 원래 레이아웃으로 복귀한 후 제거할 수 있으며 인계 기록은 남습니다.
 
-Windows에서는 Node.js 22.5 이상과 Git for Windows를 준비하고 앱의 `PATH`에서 `node`와 CLI를 찾을 수 있어야 합니다. PowerShell에서 `npm.cmd run install:mod -- --dry-run`, `npm.cmd run install:mod`, `herdr-app check "$env:USERPROFILE/.config/herdr-app/mods/context-bridge"`, `herdr-app do layout.switch --name context-bridge` 순서로 실행합니다. 제거 전에는 `herdr-app do layout.switch --name main`으로 복귀하고 `npm.cmd run uninstall:mod`를 사용합니다. 사용자 경로를 재정의했다면 check 경로도 맞춥니다. 기존 Claude 상태줄은 Git Bash가 있으면 그 셸로, 없으면 PowerShell로 실행하며 AGY는 기본 Windows 명령 셸을 사용합니다.
+Windows에서는 Node.js 22.5 이상과 Git for Windows를 준비하고 앱의 `PATH`에서 `node`와 CLI를 찾을 수 있어야 합니다. PowerShell에서 `npx.cmd herdr-context-bridge@latest install --dry-run`, `npx.cmd herdr-context-bridge@latest install`, `herdr-app check "$env:USERPROFILE/.config/herdr-app/mods/context-bridge"`, `herdr-app do layout.switch --name context-bridge` 순서로 실행합니다. 제거 전에는 `herdr-app do layout.switch --name main`으로 복귀하고 `npx.cmd herdr-context-bridge@latest uninstall`을 사용합니다. 사용자 경로를 재정의했다면 check 경로도 맞춥니다. 기존 Claude 상태줄은 Git Bash가 있으면 그 셸로, 없으면 PowerShell로 실행하며 AGY는 기본 Windows 명령 셸을 사용합니다.
 
 Claude 카드가 비어 있으면 설치 후 API 응답과 statusLine sample이 아직 없는지 확인합니다. Codex hooks는 `/hooks`의 정상 신뢰 절차가 필요할 수 있습니다. 이미 실행 중인 CLI는 새 설정을 즉시 반영하지 않을 수 있으므로 후보를 직접 연결합니다. 앱에서 CLI를 찾지 못하면 앱이 상속한 `PATH`를 확인하세요.
 

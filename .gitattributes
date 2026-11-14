@@ -1,0 +1,2 @@
+# npx runs bin files through their shebang; a CRLF checkout on Windows would publish "node\r".
+bin/*.mjs text eol=lf

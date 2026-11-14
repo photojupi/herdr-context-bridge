@@ -4,7 +4,7 @@
 
 A local macOS and native Windows tool for checking Claude Code, Codex, and AGY (Antigravity CLI) account quotas in Herdr. Work history can be handed off in all six directions between Claude, Codex, and AGY to a new terminal in the same working directory when a limit runs low. The default is **Ask every time**. Automatic handoff must be enabled explicitly for a source session you select.
 
-It uses only Node.js built-in modules, with no separate web server or package installation required.
+It uses only Node.js built-in modules, with no separate web server or third-party dependencies.
 
 Providers appear after this helper observes account usage through an official interface: a successful Codex quota query, or valid Claude/AGY statusline quota data. Installation, settings files, and an AGY `authenticating` event alone do not count. Previously observed providers remain visible with unavailable or stale information when collection fails; this is an observation history, not a live login-status check. Existing valid usage caches are recognized. All three providers support usage display, alerts, and conversation handoff.
 
@@ -31,24 +31,20 @@ Remote Herdr machines and simultaneous management of multiple authentication pro
 
 ## Installation and removal
 
-Launch Herdr once to create its default layout, then clone the repository and install. On macOS:
+Launch Herdr once to create its default layout, then install with npx. You do not need to download the source; installation requires only Node.js 22.5 or newer. On macOS:
 
 ```sh
-git clone https://github.com/photojupi/herdr-context-bridge.git
-cd herdr-context-bridge
-npm run install:mod -- --dry-run
-npm run install:mod
+npx herdr-context-bridge@latest install --dry-run
+npx herdr-context-bridge@latest install
 herdr-app check ~/.config/herdr-app/mods/context-bridge
 herdr-app do layout.switch '{"name":"context-bridge"}'
 ```
 
-On Windows, use PowerShell:
+On Windows, use PowerShell. Use `npx.cmd`, because the PowerShell execution policy can block `npx.ps1`:
 
 ```powershell
-git clone https://github.com/photojupi/herdr-context-bridge.git
-cd herdr-context-bridge
-npm.cmd run install:mod -- --dry-run
-npm.cmd run install:mod
+npx.cmd herdr-context-bridge@latest install --dry-run
+npx.cmd herdr-context-bridge@latest install
 herdr-app check "$env:USERPROFILE/.config/herdr-app/mods/context-bridge"
 herdr-app do layout.switch --name context-bridge
 ```
@@ -57,13 +53,15 @@ The paths above assume the default Herdr configuration directory. Following [Her
 
 By default, the installer copies the personal mod and helper to `~/.config/herdr-app/mods/context-bridge/` and places the quota summary alongside the existing bottom status bar in `layouts/context-bridge.json`, a copy of the default `main` layout. The row keeps the existing status bar height; a layout without a status bar gets one bottom row. Reinstalling replaces the former right panel with this layout without duplicating the summary. Built-in mods and the original `main.json` remain unchanged. The installation command itself does not switch the visible layout.
 
-After updating this repository, rerun `npm run install:mod` (`npm.cmd run install:mod` on Windows) to update the copied helper and enable AGY handoff and permission-mode handling.
+Running `herdr-context-bridge` without arguments or with `--help` only prints usage, and an unknown command or option, such as `--dryrun`, changes nothing and exits with an error.
+
+To update, rerun `npx herdr-context-bridge@latest install` (`npx.cmd` on Windows) to update the copied helper and enable AGY handoff and permission-mode handling. Keep `@latest`, because npx may otherwise reuse an older cached version.
 
 It adds a statusline wrapper and hooks to Claude's `~/.claude/settings.json`, and hooks to Codex's `~/.codex/hooks.json`. Existing hooks are preserved. The original Claude statusline command receives the original stdin, and its output and exit code are preserved. Initial configuration backups and a list of changed files are saved in `~/.local/state/herdr-context-bridge/install.json`. If you change the statusline command before reinstalling, the wrapper uses that new command as its original while preserving the initial file backup.
 
 On Windows, the original Claude statusline runs through Git Bash when available, otherwise PowerShell; AGY retains the default Windows command shell. Handoff uses a Node launcher to preserve arguments and environment variables without requiring `/usr/bin/env`.
 
-For AGY, it adds a wrapper to `~/.gemini/antigravity-cli/settings.json`. The original command's stdin, stdout, stderr, and exit code are preserved, as are existing statusline options. A new statusline stacks below AGY's built-in display. An explicitly disabled statusline stays disabled. Reinstall with `npm run install:mod` to add AGY support to an existing installation, then let your signed-in AGY session supply its normal statusline data. No test prompt is required. Before the first valid observation the provider stays hidden; **Refresh** only rereads Claude/AGY's collected data.
+For AGY, it adds a wrapper to `~/.gemini/antigravity-cli/settings.json`. The original command's stdin, stdout, stderr, and exit code are preserved, as are existing statusline options. A new statusline stacks below AGY's built-in display. An explicitly disabled statusline stays disabled. Reinstall with `npx herdr-context-bridge@latest install` to add AGY support to an existing installation, then let your signed-in AGY session supply its normal statusline data. No test prompt is required. Before the first valid observation the provider stays hidden; **Refresh** only rereads Claude/AGY's collected data.
 
 Codex may require you to trust installed hooks through its normal CLI procedure, such as `/hooks`. Existing sessions may not load new hooks immediately; use manual session binding below. Installing alone does not produce Claude usage data: it appears after an API response supplies statusline input in that session.
 
@@ -71,19 +69,41 @@ Before removal, switch back to your original layout. This example uses the defau
 
 ```sh
 herdr-app do layout.switch '{"name":"main"}'
-npm run uninstall:mod -- --dry-run
-npm run uninstall:mod
+npx herdr-context-bridge@latest uninstall --dry-run
+npx herdr-context-bridge@latest uninstall
 ```
 
 On Windows:
 
 ```powershell
 herdr-app do layout.switch --name main
-npm.cmd run uninstall:mod -- --dry-run
-npm.cmd run uninstall:mod
+npx.cmd herdr-context-bridge@latest uninstall --dry-run
+npx.cmd herdr-context-bridge@latest uninstall
 ```
 
 The uninstaller removes the added hooks and statusline wrapper and restores the previous command. It preserves statusline options changed after installation and unrelated settings. Other managed files are removed or restored only if they still match their installed contents; user-edited files are left in place and listed under `preserved` in the result. **Original handoff records, work state, and backups remain after removal.** The last installation record stays in `last-install.json` in the same data directory.
+
+### Installing from source (development)
+
+To work on this repository, clone it and run the npm scripts instead. On macOS:
+
+```sh
+git clone https://github.com/photojupi/herdr-context-bridge.git
+cd herdr-context-bridge
+npm run install:mod -- --dry-run
+npm run install:mod
+```
+
+On Windows PowerShell:
+
+```powershell
+git clone https://github.com/photojupi/herdr-context-bridge.git
+cd herdr-context-bridge
+npm.cmd run install:mod -- --dry-run
+npm.cmd run install:mod
+```
+
+Then run the same `herdr-app check` and `layout.switch` commands as above. After pulling changes, rerun `npm run install:mod`; remove with `npm run uninstall:mod -- --dry-run` and `npm run uninstall:mod` (`npm.cmd` on Windows). Both methods share the installation record in `~/.local/state/herdr-context-bridge/install.json`, so you can reinstall or remove a source installation with npx, and vice versa.
 
 ## Usage
 
@@ -151,10 +171,14 @@ The default data directory is `USERPROFILE/.local/state/herdr-context-bridge` on
 | `npm test` | Local regression tests |
 | `npm run check` | JavaScript syntax checks |
 | `node scripts/smoke.mjs` | Verify complete manual/automatic handoff execution boundaries with a temporary HOME and fake CLIs |
-| `npm run install:mod -- --dry-run` | Preview installation paths to be changed |
-| `npm run install:mod` | Install or update the personal mod, helper, layout, and hooks |
-| `npm run uninstall:mod -- --dry-run` | Preview removal and preservation |
-| `npm run uninstall:mod` | Remove installation changes and retain data |
+| `npx herdr-context-bridge@latest install --dry-run` | Preview installation paths to be changed |
+| `npx herdr-context-bridge@latest install` | Install or update the personal mod, helper, layout, and hooks |
+| `npx herdr-context-bridge@latest uninstall --dry-run` | Preview removal and preservation |
+| `npx herdr-context-bridge@latest uninstall` | Remove installation changes and retain data |
+| `npm run install:mod -- --dry-run` | Development: preview installation from a clone |
+| `npm run install:mod` | Development: install or update from a clone |
+| `npm run uninstall:mod -- --dry-run` | Development: preview removal from a clone |
+| `npm run uninstall:mod` | Development: remove installation changes from a clone and retain data |
 | `node src/cli.mjs status` | Query usage, bindings, and jobs, and evaluate the current automatic policy |
 | `node src/cli.mjs locale` | Read-only query of the detected display language |
 | `node src/cli.mjs config` | Read current configuration |
@@ -164,6 +188,8 @@ The default data directory is `USERPROFILE/.local/state/herdr-context-bridge` on
 | `node src/cli.mjs bind '<JSON>'` | Bind a candidate using `terminalId`, `provider`, `id`, and `cwd`; for AGY, optionally choose target permissions with `handoffPermissionMode: "default"` or `"bypass"` |
 | `node src/cli.mjs handoff '<JSON>'` | Request a manual handoff using `sourceKey`, `target`, `automatic:false`, and optional `space` |
 | `node src/cli.mjs job <jobId>` | Query a specific handoff job |
+
+The `node src/cli.mjs` commands run from a clone. After an npx installation, run the same commands with the installed helper instead, such as `node ~/.config/herdr-app/mods/context-bridge/helper/cli.mjs status` (on Windows, `node "$env:USERPROFILE/.config/herdr-app/mods/context-bridge/helper/cli.mjs" status`).
 
 Public query/configuration/handoff commands output JSON and return `{ "error": "…" }` with a failing exit code on error. `capture`, `statusline`, `worker`, and `launch` are internal commands used by installed hooks and the helper. `status` can trigger execution in automatic mode; do not treat it as a read-only query.
 
